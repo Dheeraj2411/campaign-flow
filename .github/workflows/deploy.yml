@@ -1,0 +1,39 @@
+name: Deploy CampaignFlow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, xml, ctype, iconv, intl, pdo_pgsql, dom, filter, gd, iconv, json, mbstring, pdo, bcmath
+
+    - name: Install Composer Dependencies
+      run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+
+    - name: Install NPM Dependencies & Build Assets
+      run: |
+        npm ci
+        npm run build
+
+    - name: Deploy to Server Placeholder
+      run: |
+        echo "Replace this with standard VPS deployment..."
+        echo "e.g., rsync files, SSH into server, run 'docker compose up -d --build'"
+        # ssh user@server "cd /path/to/campaignflow && git pull && docker compose up -d --build"

@@ -1,0 +1,35 @@
+﻿
+  Dropping all tables .............. 94.91ms DONE
+
+   INFO  Preparing database.  
+
+  Creating migration table ......... 24.49ms DONE
+
+   INFO  Running migrations.  
+
+  0001_01_01_000000_create_users_table  145.63ms DONE
+  0001_01_01_000001_create_cache_table  95.70ms DONE
+  0001_01_01_000002_create_jobs_table  110.10ms DONE
+  2026_03_11_090009_create_contacts_table  44.30ms FAIL
+
+   Illuminate\Database\QueryException 
+
+  SQLSTATE[HY000]: General error: 1005 Can't create table `campaignflow`.`contacts` (errno: 150 "Foreign key constraint is incorrectly formed") (Connection: mysql, Host: 127.0.0.1, Port: 3306, Database: campaignflow, SQL: alter table `contacts` add constraint `contacts_workspace_id_foreign` foreign key (`workspace_id`) references `workspaces` (`id`) on delete cascade)
+
+  at vendor\laravel\framework\src\Illuminate\Database\Connection.php:838
+    834▕             $exceptionType = $this->isUniqueConstraintError($e)
+    835▕                 ? UniqueConstraintViolationException::class
+    836▕                 : QueryException::class;
+    837▕ 
+  ➜ 838▕             throw new $exceptionType(
+    839▕                 $this->getNameWithReadWriteType(),
+    840▕                 $query,
+    841▕                 $this->prepareBindings($bindings),
+    842▕                 $e,
+
+  1   vendor\laravel\framework\src\Illuminate\Database\Connection.php:584
+      PDOException::("SQLSTATE[HY000]: General error: 1005 Can't create table `campaignflow`.`contacts` (errno: 150 "Foreign key constraint is incorrectly formed")")
+
+  2   vendor\laravel\framework\src\Illuminate\Database\Connection.php:584
+      PDOStatement::execute()
+

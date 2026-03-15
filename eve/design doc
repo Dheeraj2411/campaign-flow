@@ -1,0 +1,96 @@
+
+This document synthesizes the high-conversion storefront concepts with the advanced, data-dense CRM/Admin dashboard principles into a single, cohesive architecture optimized for a modern Vue.js, Inertia, Laravel, and Tailwind CSS stack.
+
+---
+
+# Master Design Document: GharSetu
+
+## 1. Product Overview
+
+* **Application Name:** GharSetu
+* **Tech Stack:** Vue.js (Frontend), Inertia.js (Routing), Laravel (Backend), Tailwind CSS (Styling).
+* **Core Objective:** To deliver a dual-experience platform. It provides a seamless, high-conversion consumer storefront for users, paired with a powerful, SaaS-native admin CRM and communication dashboard for management.
+
+## 2. Global UI/UX Principles
+
+These rules apply across the entire application to ensure a unified brand feel, even when switching between the Storefront and the Admin Panel.
+
+* **Mobile-First Responsiveness:** All layouts begin with a mobile touch-optimized view (stacked columns, bottom sheets, off-canvas drawers) and progressively enhance (`md:`, `lg:`) to utilize larger desktop displays.
+* **Soft Geometry:** Consistent use of rounded corners (`rounded-xl` or ~12px) for buttons, modals, and product cards to make the interface feel modern and approachable.
+* **Iconography:** Consistent use of a single icon library (e.g., Google Material Symbols Outlined). Icons are filled to represent active states and outlined for resting states.
+* **Dark Mode Ready:** The Tailwind configuration will support symmetrical dark mode inversion (`dark:bg-slate-900`, `dark:text-white`) across both environments.
+
+---
+
+## 3. The Storefront Experience (User-Facing)
+
+The consumer-facing side of GharSetu prioritizes visual engagement, trust, and frictionless purchasing.
+
+### A. Storefront Visual Identity (Warm & Premium)
+
+Designed to highlight products (like groceries or physical goods) using a clean, high-contrast aesthetic.
+
+* **Main Canvas:** *Off-White* (`#F9FBF9`) - Keeps the interface airy and lets product images pop.
+* **Primary Accent:** *Zesty Mandarin / Orange* (`#F67E15`) - Used exclusively for primary actions (Add to Cart, Shop Now, Sale Tags) to drive conversions.
+* **Secondary Brand:** *Deep Forest Green* (`#06402B`) - Used for headers, footers, and active navigation states to provide grounded professionalism.
+* **Typography:** Bold, geometric sans-serif for impact. Heavy font weights (`font-black`) for hero sections.
+
+### B. Storefront UX Architecture
+
+* **Top Navigation:** A sticky, glassmorphism header (`backdrop-blur-md`).
+* *Mobile:* Utilizes a top-level Hamburger Menu to open an off-canvas drawer, preserving screen space. The shopping cart remains persistently visible.
+
+
+* **Hero Section:** Split layout featuring vibrant lifestyle imagery on one side and a strong value proposition with a split CTA (Primary solid button vs. Secondary bordered button) on the other.
+* **Product Discovery:** * Clean, soft-shadow white cards (`bg-white shadow-sm rounded-xl`).
+* Clear visual hierarchy: Product Image -> Price (`font-bold text-lg`) -> "Add" Button.
+* Subtle `hover:scale-105` transition effects on product imagery for tactile feedback.
+
+
+
+---
+
+## 4. The Admin & CRM Experience (Management-Facing)
+
+The backend of GharSetu prioritizes data density, workflow efficiency, and legibility for long working sessions.
+
+### A. Admin Visual Identity (SaaS-Native & Analytical)
+
+Drawing from modern CRM design, this palette reduces eye strain while making data visualizations engaging.
+
+* **Main Canvas:** *Cool Slate* (`#F8FAFC`) - Standard for modern data tools; highly readable.
+* **Primary Brand/Action:** *Deep Indigo* (`#4020C9`) - Used for primary CTAs, active sidebar links, and primary data lines in charts.
+* **Secondary/Highlight:** *Soft Violet* (`#9477ED`) & *Lilac* (`#BBACE7`) - Used for hover states, pill badges, and layered chart data.
+* **Alert/Warm Accent:** *Terracotta* (`#AF5134`) - Used sparingly for notifications, warnings, or downward chart trends.
+
+### B. Admin UX Architecture
+
+* **Global Navigation:** * *Desktop:* A collapsible Left Sidebar housing core modules (Dashboard, Inventory, Messages, Analytics).
+* *Mobile:* A slide-out drawer triggered by a top app bar hamburger menu.
+
+
+* **The Communications Hub (3-Column Layout):**
+* For managing customer inquiries or social messages.
+* *Column 1:* Navigation (Sidebar).
+* *Column 2:* Inbox Feed (Scrollable list of message cards with avatars and truncated snippets).
+* *Column 3:* Active Chat Workspace (Fluid width, sticky header, distinct chat bubble alignments, fixed bottom input area).
+* *Mobile Adaptation:* This converts into a "Drill-Down" flow. Tapping a message in the Inbox (View 1) slides the Active Chat (View 2) over the screen, with a prominent "Back" button to return.
+
+
+* **Data Visualization (Dashboards):**
+* Modular, white cards (`bg-white border border-gray-200`) resting on the slate background.
+* Charts utilize the Indigo-to-Violet color scale to maintain a unified, polished aesthetic, avoiding random default chart colors.
+
+
+
+---
+
+## 5. Implementation Strategy (Vue & Tailwind)
+
+To manage this dual-interface smoothly within your stack:
+
+1. **Tailwind Configuration (`tailwind.config.js`):** Extend the theme to include both palettes using semantic naming conventions (e.g., `store-primary`, `admin-primary`, `store-bg`, `admin-bg`).
+2. **Vue Layout Components:** Utilize Inertia's persistent layouts to separate the structural wrappers. Create a `StoreLayout.vue` (with the top-nav and footer) and an `AdminLayout.vue` (with the sidebar and authenticated user state).
+3. **Component Reusability:** Build base UI components (like `<BaseButton>`, `<BaseModal>`, `<DataTable>`) that accept props for visual variants (`variant="store"` or `variant="admin"`) to keep the codebase DRY while satisfying both design languages.
+
+---
