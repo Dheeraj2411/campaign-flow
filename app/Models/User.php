@@ -8,10 +8,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
+use Laravel\Sanctum\HasApiTokens;
+
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
+
 
     /**
      * The attributes that are mass assignable.
@@ -28,12 +31,12 @@ class User extends Authenticatable
 
     public function workspaces(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
-        return $this->belongsToMany(Workspace::class, 'workspace_user')->withPivot('role')->withTimestamps();
+        return $this->belongsToMany(Workspace::class , 'workspace_user')->withPivot('role')->withTimestamps();
     }
 
     public function activeWorkspace(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
-        return $this->belongsTo(Workspace::class, 'active_workspace_id');
+        return $this->belongsTo(Workspace::class , 'active_workspace_id');
     }
 
     /**
@@ -54,10 +57,10 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at'   => 'datetime',
-            'password'            => 'hashed',
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
             'active_workspace_id' => 'integer',
-            'is_active'           => 'boolean',
+            'is_active' => 'boolean',
         ];
     }
 }

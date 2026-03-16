@@ -68,7 +68,7 @@ class CampaignController extends Controller
 
         $campaign->loadCount([
             'messageLogs as total_sent',
-            'messageLogs as total_delivered' => fn($q) => $q->where('status', 'delivered'),
+            'messageLogs as total_delivered' => fn($q) => $q->whereIn('status', ['sent', 'delivered']),
             'messageLogs as total_failed'    => fn($q) => $q->where('status', 'failed'),
         ]);
 

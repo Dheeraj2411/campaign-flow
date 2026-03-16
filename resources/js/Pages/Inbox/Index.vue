@@ -73,7 +73,7 @@
                                     <div :class="['text-[10px] mt-1 text-right flex items-center justify-end gap-1', msg.direction === 'outbound' ? 'text-indigo-200' : 'text-slate-400']">
                                         {{ formatTime(msg.sent_at) }}
                                         <span v-if="msg.direction === 'outbound'" class="material-symbols-outlined text-[14px]">
-                                            {{ msg.status === 'sent' ? 'check' : (msg.status === 'delivered' ? 'done_all' : 'error') }}
+                                            {{ msg.status === 'sent' ? 'check' : (msg.status === 'delivered' ? 'done_all' : (msg.status === 'pending' || msg.status === 'sending' ? 'schedule' : 'error')) }}
                                         </span>
                                     </div>
                                 </div>
@@ -84,7 +84,7 @@
                     <!-- Message Input -->
                     <div class="p-4 bg-white border-t border-slate-200 shadow-sm z-10">
                         <form @submit.prevent="sendMessage" class="flex gap-2">
-                            <input v-model="newMessage" type="text" class="input flex-1 bg-slate-50/50" placeholder="Type a message..." :disabled="sending"/>
+                            <input ref="messageInput" v-model="newMessage" type="text" class="input flex-1 bg-slate-50/50" placeholder="Type a message..." :disabled="sending"/>
                             <BaseButton variant="admin" type="submit" :loading="sending" :disabled="!newMessage.trim() || sending" class="px-6">Send</BaseButton>
                         </form>
                     </div>
@@ -126,6 +126,7 @@ const loadingMessages = ref(false)
 const newMessage = ref('')
 const sending = ref(false)
 const messagesContainer = ref(null)
+const messageInput = ref(null)
 
 // Watch for prop changes (e.g., Inertia reload)
 watch(() => props.conversations, (newVal) => {
@@ -170,6 +171,7 @@ const selectConversation = async (conv) => {
         console.error('Failed to load messages', error)
     } finally {
         loadingMessages.value = false
+        nextTick(() => messageInput.value?.focus())
     }
 }
 
@@ -222,6 +224,7 @@ const sendMessage = async () => {
     } finally {
         sending.value = false
         scrollToBottom()
+        nextTick(() => messageInput.value?.focus())
     }
 }
 
@@ -255,6 +258,19 @@ onMounted(() => {
                 } else {
                     // New conversation, trigger full list reload
                     router.reload({ only: ['conversations'] })
+                }
+            })
+            .listen('MessageStatusUpdated', (e) => {
+                const updatedMsg = e.message;
+                const index = messages.value.findIndex(m => m.id === updatedMsg.id);
+                if (index !== -1) {
+                    messages.value[index].status = updatedMsg.status;
+                }
+                
+                // Also update status in last message if it's the conversation list
+                const idx = localConversations.value.findIndex(c => c.id === updatedMsg.conversation_id);
+                if (idx !== -1) {
+                    // Force update if needed, though status isn't usually shown in the sidebar list snippet
                 }
             });
     }

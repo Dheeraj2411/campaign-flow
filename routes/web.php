@@ -16,6 +16,7 @@ Route::get('/', fn() => redirect()->route('dashboard'));
 Route::get('/whatsapp/webhook', [\App\Http\Controllers\Api\WhatsAppWebhookController::class, 'verify']);
 Route::post('/whatsapp/webhook', [\App\Http\Controllers\Api\WhatsAppWebhookController::class, 'handle']);
 Route::post('/telegram/webhook/{workspace:slug}', [\App\Http\Controllers\Api\TelegramWebhookController::class, 'handle']);
+Route::get('/connect/{workspace:slug}', [\App\Http\Controllers\PublicContactController::class, 'show'])->name('public.connect');
 
 // ── Dashboard ─────────────────────────────────────────────
 Route::get('/dashboard', function () {
@@ -52,6 +53,7 @@ Route::middleware(['auth', \App\Http\Middleware\CheckUserIsActive::class])->grou
 
     // Templates
     Route::resource('templates', MessageTemplateController::class);
+    Route::post('/templates/{template}/test', [MessageTemplateController::class, 'sendTest'])->name('templates.test');
 
     // Inbox (Real-Time Messaging)
     Route::get('/inbox', [\App\Http\Controllers\InboxController::class, 'index'])->name('inbox');

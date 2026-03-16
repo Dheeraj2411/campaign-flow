@@ -48,38 +48,21 @@ class InboxController extends Controller
             'body' => 'required|string|max:5000',
         ]);
 
-        $workspace = $conversation->workspace;
-        $contact   = $conversation->contact;
-        $status    = 'failed';
-        $error     = null;
-
-        try {
-            if ($conversation->platform === 'whatsapp') {
-                $service = new \App\Services\WhatsAppService($workspace);
-                $service->sendMessage($contact->phone, $validated['body']);
-            } elseif ($conversation->platform === 'telegram') {
-                $service = new \App\Services\TelegramService($workspace);
-                $identifier = $contact->telegram_username ?: $contact->phone; 
-                $service->sendMessage($identifier, $validated['body']);
-            }
-            $status = 'sent';
-        } catch (\Exception $e) {
-            $error = $e->getMessage();
-        }
-
         $msg = $conversation->messages()->create([
             'direction' => 'outbound',
             'body'      => $validated['body'],
-            'status'    => $status,
+            'status'    => 'pending',
             'sent_at'   => now(),
         ]);
 
         $conversation->update(['last_message_at' => now()]);
 
+        // Dispatch background job for actual sending
+        \App\Jobs\SendConversationMessageJob::dispatch($msg->id);
+
         return response()->json([
-            'success' => $status === 'sent',
+            'success' => true,
             'message' => $msg,
-            'error'   => $error,
         ]);
     }
 }

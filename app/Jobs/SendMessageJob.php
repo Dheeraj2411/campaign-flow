@@ -51,7 +51,12 @@ class SendMessageJob implements ShouldQueue
                 $service->sendMessage($contact->phone, $log->final_message);
             } elseif ($log->platform === 'telegram') {
                 $service = new \App\Services\TelegramService($workspace);
-                $identifier = $contact->telegram_username ?: $contact->phone; 
+                // Prefer the numeric chat_id over username/phone - Telegram requires this
+                $identifier = $contact->telegram_chat_id ?: $contact->telegram_username ?: $contact->phone; 
+                if (empty($identifier)) {
+                    $log->update(['status' => 'failed', 'error_message' => 'No Telegram chat ID found. The contact must message the bot first.']);
+                    return;
+                }
                 $service->sendMessage($identifier, $log->final_message);
             }
 
@@ -60,7 +65,7 @@ class SendMessageJob implements ShouldQueue
         } catch (\Exception $e) {
             $log->update([
                 'status'        => 'failed',
-                'error_message' => $e->getMessage(),
+                'error_message' => substr($e->getMessage(), 0, 500), // Ensure it fits in DB
             ]);
             
             throw $e; // Re-throw so Laravel can retry with backoff

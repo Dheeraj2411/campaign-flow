@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Contact extends Model
 {
     protected $fillable = [
-        'workspace_id', 'name', 'phone', 'telegram_username', 'tags', 'custom_attributes',
+        'workspace_id', 'name', 'phone', 'telegram_username', 'telegram_chat_id', 'tags', 'custom_attributes',
     ];
 
     protected $casts = [

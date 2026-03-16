@@ -16,23 +16,28 @@ class TelegramWebhookController extends Controller
     public function handle(Request $request, Workspace $workspace)
     {
         $payload = $request->all();
+        \Illuminate\Support\Facades\Log::debug("Telegram Webhook received for {$workspace->slug}:", $payload);
 
         // Telegram sends incoming messages here
         $msg = data_get($payload, 'message');
         if ($msg && isset($msg['text'])) {
             $fromUsername = $msg['from']['username'] ?? null;
             $fromId = $msg['from']['id'] ?? null;
+            $chatId = (string) ($msg['chat']['id'] ?? $fromId);
             $text = $msg['text'];
 
             // Try to find the contact in this workspace by telegram username or phone (id)
             $contact = \App\Models\Contact::where('workspace_id', $workspace->id)
-                ->where(function ($query) use ($fromUsername, $fromId) {
+                ->where(function ($query) use ($fromUsername, $fromId, $chatId) {
                     if ($fromUsername) {
-                        $query->where('telegram_username', $fromUsername)
-                              ->orWhere('telegram_username', '@' . $fromUsername);
+                        $query->whereRaw('LOWER(telegram_username) = ?', [strtolower($fromUsername)])
+                              ->orWhereRaw('LOWER(telegram_username) = ?', [strtolower('@' . $fromUsername)]);
                     }
                     if ($fromId) {
                         $query->orWhere('phone', $fromId); // Sometimes saved as phone
+                    }
+                    if ($chatId) {
+                        $query->orWhere('telegram_chat_id', $chatId);
                     }
                 })->first();
 
@@ -42,8 +47,12 @@ class TelegramWebhookController extends Controller
                     'workspace_id' => $workspace->id,
                     'name' => $msg['from']['first_name'] ?? 'Unknown Telegram User',
                     'telegram_username' => $fromUsername ? '@' . $fromUsername : $fromId,
+                    'telegram_chat_id' => $chatId,
                     'phone' => $fromId,
                 ]);
+            } elseif ($chatId && $contact->telegram_chat_id !== $chatId) {
+                // Always update chat_id so we can send messages back
+                $contact->update(['telegram_chat_id' => $chatId]);
             }
 
             $conversation = \App\Models\Conversation::updateOrCreate(

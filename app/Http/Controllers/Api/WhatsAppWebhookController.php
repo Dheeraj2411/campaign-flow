@@ -80,6 +80,7 @@ class WhatsAppWebhookController extends Controller
                 // Find pending MessageLog for this phone number and workspace
                 $log = MessageLog::where('platform', 'whatsapp')
                     ->whereHas('contact', function ($q) use ($recipientId, $workspace) {
+                        // recipientId might be prefixed with country code, try to match robustly
                         $q->where('phone', 'like', "%{$recipientId}")
                           ->where('workspace_id', $workspace->id);
                     })
@@ -87,7 +88,23 @@ class WhatsAppWebhookController extends Controller
                     ->first();
 
                 if ($log) {
-                    $log->update(['status' => $statusName]);
+                    $updateData = ['status' => $statusName];
+                    
+                    if ($statusName === 'failed') {
+                        \Illuminate\Support\Facades\Log::error("WhatsApp Webhook Failed Payload: " . json_encode($status));
+                        
+                        if (isset($status['errors'][0])) {
+                            $error = $status['errors'][0];
+                            $updateData['error_message'] = "Webhook Error: {$error['title']} ({$error['code']}) - " . ($error['message'] ?? $error['error_data']['details'] ?? '');
+                        } else {
+                            $updateData['error_message'] = "Webhook Error: Unknown structure. Check laravel.log for full payload.";
+                        }
+                    }
+                    
+                    $log->update($updateData);
+                    \Illuminate\Support\Facades\Log::info("WhatsApp Webhook updated MessageLog {$log->id} to {$statusName}");
+                } else {
+                    \Illuminate\Support\Facades\Log::warning("WhatsApp Webhook could not find pending MessageLog for {$recipientId}");
                 }
             }
         }

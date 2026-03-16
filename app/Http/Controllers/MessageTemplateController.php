@@ -64,4 +64,37 @@ class MessageTemplateController extends Controller
         $template->delete();
         return back()->with('success', 'Template deleted.');
     }
+
+    public function sendTest(Request $request, MessageTemplate $template)
+    {
+        abort_if($template->workspace_id !== $this->workspaceId(), 403);
+
+        $request->validate([
+            'platform'    => 'required|in:whatsapp,telegram',
+            'destination' => 'required|string',
+        ]);
+
+        $platform    = $request->platform;
+        $destination = $request->destination;
+        $workspace   = auth()->user()->activeWorkspace;
+
+        // Simple interpolation with dummy data or provided name if any
+        $message = str_replace('{name}', 'Test User', $template->body);
+        $message = str_replace('{phone}', $destination, $message);
+        $message = str_replace('{telegram_username}', '@test_user', $message);
+
+        try {
+            if ($platform === 'whatsapp') {
+                $service = new \App\Services\WhatsAppService($workspace);
+                $service->sendMessage($destination, $message);
+            } else {
+                $service = new \App\Services\TelegramService($workspace);
+                $service->sendMessage($destination, $message);
+            }
+
+            return back()->with('success', 'Test message sent successfully.');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Test failed: ' . $e->getMessage());
+        }
+    }
 }

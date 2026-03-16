@@ -23,3 +23,14 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Debug & test scripts
+/db_test.php
+/test_*.php
+
+# Error logs
+*-error*.txt
+
+# SQLite database
+/database/*.sqlite
+/database/*.sqlite-journal

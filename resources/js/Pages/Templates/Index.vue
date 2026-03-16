@@ -27,6 +27,11 @@
 
             <template #rowActions="{ row }">
                 <div class="flex items-center justify-end gap-1">
+                    <button class="p-1.5 rounded-lg hover:bg-admin-primary/10 text-slate-400 hover:text-admin-primary transition-colors"
+                            title="Send Test"
+                            @click="openTestModal(row)">
+                        <span class="material-symbols-outlined text-[16px]">send</span>
+                    </button>
                     <button class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-admin-primary transition-colors"
                             @click="editTemplate(row)">
                         <span class="material-symbols-outlined text-[16px]">edit</span>
@@ -93,11 +98,50 @@
                 <BaseButton variant="danger" :loading="deleting" @click="doDelete">Delete</BaseButton>
             </template>
         </BaseModal>
+        
+        <!-- Test Template Modal -->
+        <BaseModal v-model="showTestModal" title="Send Test Message" max-width="md">
+            <div class="space-y-4">
+                <p class="text-sm text-slate-600">Send a test of <strong>{{ testTarget?.name }}</strong> to verify the content and variables.</p>
+                
+                <div v-if="testTarget?.platform === 'both'">
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Select Platform *</label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" v-model="testForm.platform" value="whatsapp" name="test_platform" class="accent-admin-primary" />
+                            <span class="text-sm text-slate-700">WhatsApp</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" v-model="testForm.platform" value="telegram" name="test_platform" class="accent-admin-primary" />
+                            <span class="text-sm text-slate-700">Telegram</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">
+                        {{ testForm.platform === 'whatsapp' ? 'Phone Number (with country code)' : 'Telegram Chat ID / Username' }} *
+                    </label>
+                    <input v-model="testForm.destination" type="text" class="input" 
+                           :placeholder="testForm.platform === 'whatsapp' ? '919876543210' : '1209990650 or @username'" />
+                    <p class="text-[11px] text-slate-400 mt-1">
+                        Variables will be replaced with sample data.
+                    </p>
+                </div>
+            </div>
+
+            <template #footer>
+                <BaseButton variant="ghost" @click="showTestModal = false">Cancel</BaseButton>
+                <BaseButton variant="admin" :loading="testForm.processing" :disabled="!testForm.destination" @click="submitTest">
+                    Send Test
+                </BaseButton>
+            </template>
+        </BaseModal>
     </AppLayout>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useForm, router } from '@inertiajs/vue3'
 import AppLayout from '@/Layouts/AppLayout.vue'
 import DataTable   from '@/Components/DataTable.vue'
@@ -119,8 +163,11 @@ const editing     = ref(false)
 const deleting    = ref(false)
 const deleteTarget = ref(null)
 const bodyRef     = ref(null)
+const showTestModal = ref(false)
+const testTarget    = ref(null)
 
 const form = useForm({ id: null, name: '', platform: 'whatsapp', body: '' })
+const testForm = useForm({ platform: 'whatsapp', destination: '' })
 
 const previewBody = computed(() => {
     if (!form.body) return ''
@@ -132,6 +179,15 @@ const openCreate = () => {
     form.reset()
     showForm.value = true
 }
+
+onMounted(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('create')) {
+        openCreate();
+        // optionally clean up the URL to remove the query parameter
+        window.history.replaceState({}, '', route('templates.index'));
+    }
+})
 
 const editTemplate = (row) => {
     editing.value = true
@@ -159,5 +215,20 @@ const confirmDelete = (row) => { deleteTarget.value = row; showDelete.value = tr
 const doDelete = () => {
     deleting.value = true
     router.delete(route('templates.destroy', deleteTarget.value.id), { onFinish: () => { deleting.value = false; showDelete.value = false } })
+}
+
+const openTestModal = (row) => {
+    testTarget.value = row
+    testForm.platform = row.platform === 'both' ? 'whatsapp' : row.platform
+    testForm.destination = ''
+    showTestModal.value = true
+}
+
+const submitTest = () => {
+    testForm.post(route('templates.test', testTarget.value.id), {
+        onSuccess: () => {
+            showTestModal.value = false
+        }
+    })
 }
 </script>

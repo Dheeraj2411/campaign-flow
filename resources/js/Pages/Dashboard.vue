@@ -70,7 +70,7 @@
                             <p class="text-xs text-slate-400">Import or add manually</p>
                         </div>
                     </Link>
-                    <Link :href="route('templates.create')"
+                    <Link :href="route('templates.index', { create: true })"
                           class="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:border-violet-300 hover:bg-violet-50/50 transition-all cursor-pointer">
                         <div class="p-2 bg-admin-highlight/15 rounded-lg">
                             <span class="material-symbols-outlined text-admin-highlight text-[18px]">description</span>
