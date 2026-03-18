@@ -3,11 +3,16 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\TenantScope;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Campaign extends Model
 {
+    /** @use HasFactory<\Database\Factories\CampaignFactory> */
+    use HasFactory, TenantScope;
+
     protected $fillable = [
         'workspace_id', 'name', 'platform', 'status',
         'contact_group_id', 'body', 'template_id', 'scheduled_at',

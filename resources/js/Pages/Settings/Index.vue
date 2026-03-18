@@ -15,6 +15,32 @@
                     </div>
                 </form>
             </BaseCard>
+            
+            <!-- Team Invitations -->
+            <BaseCard class="p-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="material-symbols-outlined text-admin-highlight text-2xl">group_add</span>
+                    <h3 class="text-lg font-semibold text-slate-800">Invite Team Member</h3>
+                </div>
+                <form @submit.prevent="sendInvitation" class="space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Email Address</label>
+                            <input v-model="inviteForm.email" type="email" class="input" placeholder="colleague@example.com" required />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Role</label>
+                            <select v-model="inviteForm.role" class="input">
+                                <option value="member">Member</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex justify-end pt-2">
+                        <BaseButton variant="admin" :loading="inviteForm.processing" type="submit">Send Invitation</BaseButton>
+                    </div>
+                </form>
+            </BaseCard>
 
             <!-- WhatsApp API Credentials -->
             <BaseCard class="p-6 border-l-4 border-l-green-500">
@@ -40,6 +66,10 @@
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">Phone Number ID</label>
                         <input v-model="settingsForm.whatsapp_phone_number_id" type="text" class="input" placeholder="e.g. 1029384756" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1.5">WhatsApp Business Account ID</label>
+                        <input v-model="settingsForm.whatsapp_business_account_id" type="text" class="input" placeholder="e.g. 9876543210" />
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">Permanent Access Token</label>
@@ -121,8 +151,14 @@ const generalForm = useForm({
 
 const settingsForm = useForm({
     whatsapp_phone_number_id: props.workspace.settings?.whatsapp_phone_number_id || '',
+    whatsapp_business_account_id: props.workspace.settings?.whatsapp_business_account_id || '',
     whatsapp_access_token:    props.workspace.settings?.whatsapp_access_token || '',
     telegram_bot_token:       props.workspace.settings?.telegram_bot_token || '',
+})
+
+const inviteForm = useForm({
+    email: '',
+    role: 'member',
 })
 
 const saveGeneral = () => {
@@ -131,6 +167,15 @@ const saveGeneral = () => {
 
 const saveSettings = () => {
     settingsForm.put(route('settings.update.api'), { preserveScroll: true })
+}
+
+const sendInvitation = () => {
+    inviteForm.post(route('workspaces.invite', props.workspace.id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            inviteForm.reset()
+        }
+    })
 }
 
 const copyLink = (link) => {

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Workspace extends Model
 {
-    protected $fillable = ['owner_id', 'name', 'slug', 'plan', 'settings'];
+    protected $fillable = ['owner_id', 'name', 'slug', 'plan', 'settings', 'last_import_error'];
 
     protected $casts = ['settings' => 'array'];
 
@@ -21,6 +21,11 @@ class Workspace extends Model
     public function members(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'workspace_user')->withPivot('role')->withTimestamps();
+    }
+
+    public function users(): BelongsToMany
+    {
+        return $this->members();
     }
 
     public function contacts(): HasMany
@@ -36,6 +41,11 @@ class Workspace extends Model
     public function templates(): HasMany
     {
         return $this->hasMany(MessageTemplate::class);
+    }
+
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(WorkspaceInvitation::class);
     }
 }
 

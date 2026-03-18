@@ -24,6 +24,7 @@
     "dependencies": {
         "chart.js": "^4.5.1",
         "laravel-echo": "^2.3.1",
+        "lodash": "^4.17.23",
         "pusher-js": "^8.4.0",
         "vue-chartjs": "^5.3.3"
     }

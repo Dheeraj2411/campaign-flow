@@ -15,8 +15,11 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // Seed Plans first
+        $this->call(PlanSeeder::class);
+
         // Create Admin User
-        $admin = User::firstOrCreate([
+        $admin = User::updateOrCreate([
             'email' => 'admin@campaignflow.com',
         ], [
             'name' => 'Admin User',

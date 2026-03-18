@@ -43,9 +43,10 @@ class SettingsController extends Controller
         abort_if(!$workspace, 404, 'No active workspace found.');
 
         $data = $request->validate([
-            'whatsapp_phone_number_id' => 'nullable|string|max:255',
-            'whatsapp_access_token'    => 'nullable|string|max:500',
-            'telegram_bot_token'       => 'nullable|string|max:255',
+            'whatsapp_phone_number_id'     => 'nullable|string|max:255',
+            'whatsapp_business_account_id' => 'nullable|string|max:255',
+            'whatsapp_access_token'        => 'nullable|string|max:500',
+            'telegram_bot_token'           => 'nullable|string|max:255',
         ]);
 
         $settings = $workspace->settings ?? [];

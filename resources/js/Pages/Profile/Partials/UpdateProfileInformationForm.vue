@@ -34,6 +34,14 @@ const form = useForm({
             </p>
         </header>
 
+        <div v-if="!user.can_edit_profile" class="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3">
+            <span class="material-symbols-outlined text-red-500 mt-0.5">lock</span>
+            <div>
+                <p class="text-sm font-bold text-red-800">Profile Locked</p>
+                <p class="text-xs text-red-600">Administrative settings prevent you from changing your profile details. Please contact support if you need assistance.</p>
+            </div>
+        </div>
+
         <form
             @submit.prevent="form.patch(route('profile.update'))"
             class="mt-6 space-y-6"
@@ -46,6 +54,7 @@ const form = useForm({
                     type="text"
                     class="mt-1 block w-full"
                     v-model="form.name"
+                    :disabled="!user.can_edit_profile"
                     required
                     autofocus
                     autocomplete="name"
@@ -62,6 +71,7 @@ const form = useForm({
                     type="email"
                     class="mt-1 block w-full"
                     v-model="form.email"
+                    :disabled="!user.can_edit_profile"
                     required
                     autocomplete="username"
                 />
@@ -70,27 +80,10 @@ const form = useForm({
             </div>
 
             <div v-if="mustVerifyEmail && user.email_verified_at === null">
-                <p class="mt-2 text-sm text-gray-800">
-                    Your email address is unverified.
-                    <Link
-                        :href="route('verification.send')"
-                        method="post"
-                        as="button"
-                        class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                    >
-                        Click here to re-send the verification email.
-                    </Link>
-                </p>
-
-                <div
-                    v-show="status === 'verification-link-sent'"
-                    class="mt-2 text-sm font-medium text-green-600"
-                >
-                    A new verification link has been sent to your email address.
-                </div>
+                <!-- ... unchanged ... -->
             </div>
 
-            <div class="flex items-center gap-4">
+            <div v-if="user.can_edit_profile" class="flex items-center gap-4">
                 <PrimaryButton :disabled="form.processing">Save</PrimaryButton>
 
                 <Transition

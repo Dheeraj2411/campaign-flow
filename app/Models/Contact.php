@@ -2,11 +2,16 @@
 
 namespace App\Models;
 
+use App\Traits\TenantScope;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Contact extends Model
 {
+    /** @use HasFactory<\Database\Factories\ContactFactory> */
+    use HasFactory, TenantScope;
+
     protected $fillable = [
         'workspace_id', 'name', 'phone', 'telegram_username', 'telegram_chat_id', 'tags', 'custom_attributes',
     ];
@@ -17,9 +22,18 @@ class Contact extends Model
     ];
 
     // ── Scopes ─────────────────────────────────────────────────
-    public function scopeForWorkspace($query, $workspaceId)
+    public function scopeFilter($query, array $filters)
     {
-        return $query->where('workspace_id', $workspaceId);
+        $query->when($filters['search'] ?? null, function ($query, $search) {
+            $query->where(function ($query) use ($search) {
+                $query->where('name', 'like', '%'.$search.'%')
+                    ->orWhere('phone', 'like', '%'.$search.'%')
+                    ->orWhere('telegram_username', 'like', '%'.$search.'%');
+            });
+        })->when($filters['tag'] ?? null, function ($query, $tag) {
+            // Postgres JSONB containment check
+            $query->whereJsonContains('tags', $tag);
+        });
     }
 
     // ── Relations ──────────────────────────────────────────────

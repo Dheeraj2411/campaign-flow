@@ -12,7 +12,7 @@ use Inertia\Inertia;
 
 class BillingController extends Controller
 {
-    public function index()
+    public function index(\App\Services\UsageService $usageService)
     {
         $wid = auth()->user()->active_workspace_id ?? 0;
         $workspace = Workspace::find($wid);
@@ -20,7 +20,7 @@ class BillingController extends Controller
         if (!$workspace) {
             return Inertia::render('Billing/Index', [
                 'plan' => 'free',
-                'usage' => ['contacts' => 0, 'campaigns' => 0, 'messages' => 0, 'conversations' => 0],
+                'usage' => null,
                 'transactions' => [],
                 'gateways' => ['razorpay' => false, 'stripe' => false],
                 'razorpayKeyId' => '',
@@ -30,12 +30,7 @@ class BillingController extends Controller
 
         return Inertia::render('Billing/Index', [
             'plan' => $workspace->plan ?? 'free',
-            'usage' => [
-                'contacts'  => Contact::where('workspace_id', $wid)->count(),
-                'campaigns' => Campaign::where('workspace_id', $wid)->count(),
-                'messages'  => MessageLog::whereHas('campaign', fn($q) => $q->where('workspace_id', $wid))->count(),
-                'conversations' => Conversation::where('workspace_id', $wid)->count(),
-            ],
+            'usage' => $usageService->getUsageStats($workspace),
             'transactions' => PaymentTransaction::where('workspace_id', $wid)
                 ->latest()
                 ->limit(20)

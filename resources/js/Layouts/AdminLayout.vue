@@ -302,6 +302,7 @@ const userInitial = computed(() =>
 const navItems = [
     { route: 'admin.dashboard',     icon: 'monitoring',       label: 'Overview'       },
     { route: 'admin.users',         icon: 'group',            label: 'User Management'},
+    { route: 'admin.plans',         icon: 'payments',         label: 'Plan Management'},
     { route: 'admin.transactions',  icon: 'receipt_long',     label: 'Transactions'   },
 ]
 

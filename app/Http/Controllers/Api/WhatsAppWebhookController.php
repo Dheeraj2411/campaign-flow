@@ -3,14 +3,28 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Contact;
+use App\Models\Conversation;
+use App\Models\ConversationMessage;
 use App\Models\MessageLog;
+use App\Models\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Handles Meta/WhatsApp webhook events:
+ * 1. Verification handshake (GET)
+ * 2. Delivery status updates (sent, delivered, read, failed)
+ * 3. Incoming customer messages (text, image, video, document)
+ */
 class WhatsAppWebhookController extends Controller
 {
+    // ─── WEBHOOK VERIFICATION ──────────────────────────────
+
     /**
-     * Meta Webhook Verification
+     * Meta calls this GET endpoint to verify your webhook URL.
+     * It sends hub_mode, hub_verify_token, and hub_challenge.
+     * We verify the token matches our env and return the challenge.
      */
     public function verify(Request $request)
     {
@@ -18,143 +32,212 @@ class WhatsAppWebhookController extends Controller
         $token     = $request->query('hub_verify_token');
         $challenge = $request->query('hub_challenge');
 
-        // You would normally check $token against your env or DB.
-        // For CampaignFlow prototype, we just accept if token matches our env or just return challenge.
-        if ($mode && $token) {
-            if ($mode === 'subscribe' && $token === config('services.whatsapp.verify_token', 'campaignflow_secret')) {
-                return response($challenge, 200);
-            }
+        if ($mode === 'subscribe' && $token === config('services.whatsapp.verify_token', 'campaignflow_secret')) {
+            return response($challenge, 200);
         }
 
         return response('Forbidden', 403);
     }
 
+    // ─── WEBHOOK HANDLER ───────────────────────────────────
+
     /**
-     * Handle incoming webhooks (delivery status + inbound messages)
+     * Meta calls this POST endpoint for every WhatsApp event:
+     * - Message status changes (sent → delivered → read)
+     * - Incoming messages from customers
      */
     public function handle(Request $request)
     {
-        // 0. Verify Signature
-        $signature = $request->header('X-Hub-Signature-256');
-        $secret = config('services.whatsapp.app_secret', 'campaignflow_app_secret');
-
-        if ($signature) {
-            $expected = 'sha256=' . hash_hmac('sha256', $request->getContent(), $secret);
-            if (!hash_equals($expected, $signature)) {
-                Log::warning('WhatsApp Webhook signature mismatch.');
-                return response('Forbidden', 403);
-            }
+        // Step 1: Verify webhook signature (security)
+        if (!$this->verifySignature($request)) {
+            return response('Forbidden', 403);
         }
 
         $payload = $request->all();
 
-        // ** MULTI-TENANT ISOLATION **
-        // Find which Workspace owns the receiving phone number
-        $metadata = data_get($payload, 'entry.0.changes.0.value.metadata');
-        $displayPhoneNumber = $metadata['display_phone_number'] ?? null;
-
-        if (!$displayPhoneNumber) {
-            Log::warning('WhatsApp Webhook received without display_phone_number', $payload);
-            return response()->json(['success' => true]); // Acknowledge to Meta to avoid retries
-        }
-
-        // Search workspaces for the exact display_phone_number in their settings
-        // Stored as 'whatsapp_phone_number' or similar during setup
-        $workspace = \App\Models\Workspace::whereJsonContains('settings->whatsapp_display_phone_number', $displayPhoneNumber)
-            ->orWhereJsonContains('settings->whatsapp_phone_number_id', $metadata['phone_number_id'] ?? '')
-            ->first();
-
+        // Step 2: Find which workspace owns this phone number
+        $workspace = $this->resolveWorkspace($payload);
         if (!$workspace) {
-            Log::warning("WhatsApp Webhook received for an unknown Phone Number: {$displayPhoneNumber}");
-            return response()->json(['success' => true]);
+            return response()->json(['success' => true]); // Acknowledge to avoid Meta retries
         }
 
-        // 1. Look for status updates (Message Delivery Receipts)
+        // Step 3: Process delivery status updates
         $statuses = data_get($payload, 'entry.0.changes.0.value.statuses', []);
         foreach ($statuses as $status) {
-            $wamid         = $status['id'] ?? null;
-            $statusName    = $status['status'] ?? null; // 'sent', 'delivered', 'read', 'failed'
-            $recipientId   = $status['recipient_id'] ?? null;
-
-            if ($statusName && $recipientId) {
-                // Find pending MessageLog for this phone number and workspace
-                $log = MessageLog::where('platform', 'whatsapp')
-                    ->whereHas('contact', function ($q) use ($recipientId, $workspace) {
-                        // recipientId might be prefixed with country code, try to match robustly
-                        $q->where('phone', 'like', "%{$recipientId}")
-                          ->where('workspace_id', $workspace->id);
-                    })
-                    ->latest()
-                    ->first();
-
-                if ($log) {
-                    $updateData = ['status' => $statusName];
-                    
-                    if ($statusName === 'failed') {
-                        \Illuminate\Support\Facades\Log::error("WhatsApp Webhook Failed Payload: " . json_encode($status));
-                        
-                        if (isset($status['errors'][0])) {
-                            $error = $status['errors'][0];
-                            $updateData['error_message'] = "Webhook Error: {$error['title']} ({$error['code']}) - " . ($error['message'] ?? $error['error_data']['details'] ?? '');
-                        } else {
-                            $updateData['error_message'] = "Webhook Error: Unknown structure. Check laravel.log for full payload.";
-                        }
-                    }
-                    
-                    $log->update($updateData);
-                    \Illuminate\Support\Facades\Log::info("WhatsApp Webhook updated MessageLog {$log->id} to {$statusName}");
-                } else {
-                    \Illuminate\Support\Facades\Log::warning("WhatsApp Webhook could not find pending MessageLog for {$recipientId}");
-                }
-            }
+            $this->handleStatusUpdate($status, $workspace);
         }
 
-        // 2. Look for incoming messages (Customer Replies)
+        // Step 4: Process incoming messages
         $messages = data_get($payload, 'entry.0.changes.0.value.messages', []);
         foreach ($messages as $message) {
-            $fromPhone = $message['from'] ?? null;
-            $text = $message['text']['body'] ?? null;
-            
-            if ($fromPhone && $text) {
-                // Find contact by phone within the specific workspace!
-                $contact = \App\Models\Contact::where('workspace_id', $workspace->id)
-                    ->where('phone', 'like', "%{$fromPhone}")
-                    ->first();
-
-                // Auto-create inbound lead if contact doesn't exist
-                if (!$contact) {
-                    $contact = \App\Models\Contact::create([
-                        'workspace_id' => $workspace->id,
-                        'name'         => $message['profile']['name'] ?? 'Unknown WhatsApp User',
-                        'phone'        => '+' . ltrim($fromPhone, '+'),
-                    ]);
-                }
-
-                $conversation = \App\Models\Conversation::updateOrCreate(
-                    [
-                        'workspace_id' => $workspace->id,
-                        'contact_id'   => $contact->id,
-                        'platform'     => 'whatsapp',
-                    ],
-                    [
-                        'last_message_at' => now(),
-                        'status'          => 'open',
-                    ]
-                );
-
-                $conversation->increment('unread_count');
-
-                $convMessage = $conversation->messages()->create([
-                    'direction' => 'inbound',
-                    'body'      => $text,
-                    'status'    => 'delivered',
-                    'sent_at'   => now(),
-                ]);
-
-                broadcast(new \App\Events\MessageReceived($convMessage->load('conversation.contact')));
-            }
+            $this->handleIncomingMessage($message, $workspace);
         }
 
         return response()->json(['success' => true]);
+    }
+
+    // ─── PRIVATE HELPERS ───────────────────────────────────
+
+    /**
+     * Verify the X-Hub-Signature-256 header from Meta.
+     * Returns true if signature is valid or not present (for local testing).
+     */
+    private function verifySignature(Request $request): bool
+    {
+        $signature = $request->header('X-Hub-Signature-256');
+        if (!$signature) {
+            return true; // Allow unsigned requests (local dev)
+        }
+
+        $secret   = config('services.whatsapp.app_secret', 'campaignflow_app_secret');
+        $expected = 'sha256=' . hash_hmac('sha256', $request->getContent(), $secret);
+
+        if (!hash_equals($expected, $signature)) {
+            Log::warning('WhatsApp Webhook signature mismatch.');
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Find the workspace that owns the receiving phone number.
+     * Multi-tenant isolation: each workspace has its own WhatsApp credentials.
+     */
+    private function resolveWorkspace(array $payload): ?Workspace
+    {
+        $metadata           = data_get($payload, 'entry.0.changes.0.value.metadata');
+        $displayPhoneNumber = $metadata['display_phone_number'] ?? null;
+        $phoneNumberId      = $metadata['phone_number_id'] ?? null;
+
+        if (!$displayPhoneNumber) {
+            Log::warning('WhatsApp Webhook received without display_phone_number', $payload);
+            return null;
+        }
+
+        $workspace = Workspace::whereJsonContains('settings->whatsapp_display_phone_number', $displayPhoneNumber)
+            ->orWhereJsonContains('settings->whatsapp_phone_number_id', $phoneNumberId ?? '')
+            ->first();
+
+        if (!$workspace) {
+            Log::warning("WhatsApp Webhook: unknown phone number: {$displayPhoneNumber}");
+        }
+
+        return $workspace;
+    }
+
+    /**
+     * Handle a message delivery status update (sent, delivered, read, failed).
+     * Updates both MessageLog (campaigns) and ConversationMessage (inbox).
+     */
+    private function handleStatusUpdate(array $status, Workspace $workspace): void
+    {
+        $wamid       = $status['id'] ?? null;
+        $statusName  = $status['status'] ?? null;
+        $recipientId = $status['recipient_id'] ?? null;
+
+        if (!$wamid || !$statusName) return;
+
+        // Update campaign message log (if this was a campaign message)
+        $log = MessageLog::where('platform', 'whatsapp')
+            ->where('platform_message_id', $wamid)
+            ->first();
+
+        if (!$log && $recipientId) {
+            // Fallback: find the latest pending message for this recipient
+            $log = MessageLog::where('platform', 'whatsapp')
+                ->whereHas('contact', fn($q) => $q->where('phone', 'like', "%{$recipientId}"))
+                ->where('status', 'pending')
+                ->latest()
+                ->first();
+        }
+
+        if ($log) {
+            $log->update(['status' => $statusName]);
+        }
+
+        // Update inbox conversation message
+        $convMsg = ConversationMessage::where('platform_message_id', $wamid)->first();
+        if ($convMsg) {
+            $convMsg->update(['status' => $statusName]);
+
+            // Broadcast status change for real-time UI updates
+            try {
+                broadcast(new \App\Events\MessageStatusUpdated($convMsg));
+            } catch (\Exception $e) {
+                Log::warning("Broadcast failed (status update): " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Handle an incoming customer message.
+     * Creates or finds the contact, creates or finds the conversation,
+     * saves the message, and broadcasts it.
+     */
+    private function handleIncomingMessage(array $message, Workspace $workspace): void
+    {
+        $fromPhone = $message['from'] ?? null;
+        $msgType   = $message['type'] ?? 'text';
+        $wamid     = $message['id'] ?? null;
+
+        if (!$fromPhone) return;
+
+        // Find or create the contact (fuzzy match on last 10 digits)
+        $last10  = substr(preg_replace('/[^0-9]/', '', $fromPhone), -10);
+        $contact = Contact::where('workspace_id', $workspace->id)
+            ->where('phone', 'like', "%{$last10}")
+            ->first();
+
+        if (!$contact) {
+            $contact = Contact::create([
+                'workspace_id' => $workspace->id,
+                'name'         => $message['profile']['name'] ?? 'Unknown WhatsApp User',
+                'phone'        => '+' . ltrim($fromPhone, '+'),
+            ]);
+        }
+
+        // Find or create the conversation
+        $conversation = Conversation::updateOrCreate(
+            ['workspace_id' => $workspace->id, 'contact_id' => $contact->id, 'platform' => 'whatsapp'],
+            ['last_message_at' => now(), 'status' => 'open']
+        );
+
+        // Build the message data
+        $msgData = [
+            'direction'           => 'inbound',
+            'type'                => $msgType,
+            'status'              => 'delivered',
+            'sent_at'             => now(),
+            'platform_message_id' => $wamid,
+        ];
+
+        if ($msgType === 'text') {
+            $msgData['body'] = $message['text']['body'] ?? '';
+        } else {
+            // Media message (image, video, document, audio, sticker)
+            $mediaObj          = $message[$msgType] ?? [];
+            $msgData['media_url'] = $mediaObj['id'] ?? null;
+            $msgData['caption']   = $mediaObj['caption'] ?? null;
+            $msgData['body']      = "[Received {$msgType}]";
+        }
+
+        // Save the message
+        $convMessage = $conversation->messages()->create($msgData);
+
+        // Update conversation metadata
+        $conversation->update([
+            'last_message_at'      => now(),
+            'last_incoming_at'     => now(),
+            'unread_count'         => $conversation->unread_count + 1,
+            'last_message_preview' => mb_substr($msgData['body'] ?? "[Received {$msgType}]", 0, 100),
+        ]);
+
+        // Broadcast for real-time inbox updates
+        try {
+            broadcast(new \App\Events\MessageReceived($convMessage->load('conversation.contact')));
+        } catch (\Exception $e) {
+            Log::warning("Broadcast failed (incoming message): " . $e->getMessage());
+        }
     }
 }

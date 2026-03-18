@@ -29,6 +29,8 @@ class ProfileController extends Controller
      */
     public function update(ProfileUpdateRequest $request): RedirectResponse
     {
+        abort_if(!$request->user()->can_edit_profile, 403, 'Profile editing is disabled for your account.');
+
         $request->user()->fill($request->validated());
 
         if ($request->user()->isDirty('email')) {

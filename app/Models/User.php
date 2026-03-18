@@ -27,6 +27,7 @@ class User extends Authenticatable
         'password',
         'active_workspace_id',
         'is_active',
+        'can_edit_profile',
     ];
 
     public function workspaces(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
@@ -37,6 +38,20 @@ class User extends Authenticatable
     public function activeWorkspace(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(Workspace::class , 'active_workspace_id');
+    }
+
+    public function isPlatformAdmin(): bool
+    {
+        // Simple implementation, ID 1 is the initial admin
+        return $this->id === 1;
+    }
+
+    public function hasRoleInWorkspace(string $role, Workspace $workspace): bool
+    {
+        return $this->workspaces()
+            ->where('workspace_id', $workspace->id)
+            ->wherePivot('role', $role)
+            ->exists();
     }
 
     /**
@@ -61,6 +76,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'active_workspace_id' => 'integer',
             'is_active' => 'boolean',
+            'can_edit_profile' => 'boolean',
         ];
     }
 }

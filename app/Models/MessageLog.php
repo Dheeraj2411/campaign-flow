@@ -14,6 +14,7 @@ class MessageLog extends Model
         'final_message',
         'status',
         'error_message',
+        'platform_message_id',
     ];
 
     public function campaign(): BelongsTo

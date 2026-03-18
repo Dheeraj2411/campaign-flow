@@ -94,6 +94,53 @@ class AdminController extends Controller
     }
 
     /**
+     * List all plans for editing.
+     */
+    public function plans()
+    {
+        $this->authorizeAdmin();
+        return Inertia::render('Admin/Plans/Index', [
+            'plans' => \App\Models\Plan::all(),
+        ]);
+    }
+
+    /**
+     * Update plan pricing and limits.
+     */
+    public function updatePlan(Request $request, \App\Models\Plan $plan)
+    {
+        $this->authorizeAdmin();
+
+        $validated = $request->validate([
+            'price'                  => 'required|integer|min:0',
+            'max_contacts'           => 'required|integer',
+            'max_campaigns'          => 'required|integer',
+            'max_messages_per_month' => 'required|integer',
+            'features'               => 'nullable|array',
+            'is_active'              => 'required|boolean',
+        ]);
+
+        $plan->update($validated);
+        
+        // Clear plan limits cache
+        \Illuminate\Support\Facades\Cache::forget("plan_limits:{$plan->slug}");
+
+        return back()->with('success', "Plan {$plan->name} updated successfully.");
+    }
+
+    /**
+     * Toggle the profile edit permission for a user.
+     */
+    public function toggleProfilePermission(User $user)
+    {
+        $this->authorizeAdmin();
+        
+        $user->update(['can_edit_profile' => !$user->can_edit_profile]);
+
+        return back()->with('success', "Profile editing for {$user->name} is now " . ($user->can_edit_profile ? 'enabled' : 'disabled') . ".");
+    }
+
+    /**
      * Manually update a user's workspace plan from the admin panel.
      */
     public function updateUserPlan(Request $request, User $user)
@@ -101,14 +148,12 @@ class AdminController extends Controller
         $this->authorizeAdmin();
 
         $validated = $request->validate([
-            'plan' => 'required|in:free,pro,enterprise',
+            'plan' => 'required|exists:plans,slug',
         ]);
 
         if ($user->activeWorkspace) {
             $user->activeWorkspace->update(['plan' => $validated['plan']]);
             
-            // Notify the user about the plan upgrade (wrapped in try-catch
-            // so broadcast failures don't break the admin operation)
             try {
                 $user->notify(new \App\Notifications\PlanUpgraded($validated['plan']));
             } catch (\Exception $e) {

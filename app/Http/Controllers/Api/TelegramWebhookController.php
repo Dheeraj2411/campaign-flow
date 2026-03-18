@@ -20,13 +20,33 @@ class TelegramWebhookController extends Controller
 
         // Telegram sends incoming messages here
         $msg = data_get($payload, 'message');
-        if ($msg && isset($msg['text'])) {
+        if ($msg) {
+            $msgId = $msg['message_id'] ?? null;
             $fromUsername = $msg['from']['username'] ?? null;
             $fromId = $msg['from']['id'] ?? null;
             $chatId = (string) ($msg['chat']['id'] ?? $fromId);
-            $text = $msg['text'];
+            
+            // Determine message type and content
+            $type = \App\Models\ConversationMessage::TYPE_TEXT;
+            $body = $msg['text'] ?? '';
+            $mediaId = null;
+            $caption = $msg['caption'] ?? null;
 
-            // Try to find the contact in this workspace by telegram username or phone (id)
+            if (isset($msg['photo'])) {
+                $type = \App\Models\ConversationMessage::TYPE_IMAGE;
+                $mediaId = end($msg['photo'])['file_id']; // Latest is highest resolution
+                $body = $body ?: "[Photo]";
+            } elseif (isset($msg['document'])) {
+                $type = \App\Models\ConversationMessage::TYPE_DOCUMENT;
+                $mediaId = $msg['document']['file_id'];
+                $body = $body ?: "[Document: " . ($msg['document']['file_name'] ?? 'file') . "]";
+            } elseif (isset($msg['video'])) {
+                $type = \App\Models\ConversationMessage::TYPE_VIDEO;
+                $mediaId = $msg['video']['file_id'];
+                $body = $body ?: "[Video]";
+            }
+
+            // Try to find the contact in this workspace
             $contact = \App\Models\Contact::where('workspace_id', $workspace->id)
                 ->where(function ($query) use ($fromUsername, $fromId, $chatId) {
                     if ($fromUsername) {
@@ -34,7 +54,7 @@ class TelegramWebhookController extends Controller
                               ->orWhereRaw('LOWER(telegram_username) = ?', [strtolower('@' . $fromUsername)]);
                     }
                     if ($fromId) {
-                        $query->orWhere('phone', $fromId); // Sometimes saved as phone
+                        $query->orWhere('phone', $fromId); 
                     }
                     if ($chatId) {
                         $query->orWhere('telegram_chat_id', $chatId);
@@ -42,38 +62,39 @@ class TelegramWebhookController extends Controller
                 })->first();
 
             if (!$contact) {
-                // Auto-create contact for inbound lead
                 $contact = \App\Models\Contact::create([
                     'workspace_id' => $workspace->id,
-                    'name' => $msg['from']['first_name'] ?? 'Unknown Telegram User',
+                    'name' => trim(($msg['from']['first_name'] ?? 'Unknown') . ' ' . ($msg['from']['last_name'] ?? '')),
                     'telegram_username' => $fromUsername ? '@' . $fromUsername : $fromId,
                     'telegram_chat_id' => $chatId,
                     'phone' => $fromId,
                 ]);
             } elseif ($chatId && $contact->telegram_chat_id !== $chatId) {
-                // Always update chat_id so we can send messages back
                 $contact->update(['telegram_chat_id' => $chatId]);
             }
 
             $conversation = \App\Models\Conversation::updateOrCreate(
-                [
-                    'workspace_id' => $workspace->id,
-                    'contact_id'   => $contact->id,
-                    'platform'     => 'telegram',
-                ],
-                [
-                    'last_message_at' => now(),
-                    'status'          => 'open',
-                ]
+                ['workspace_id' => $workspace->id, 'contact_id' => $contact->id, 'platform' => 'telegram'],
+                ['last_message_at' => now(), 'status' => 'open']
             );
 
-            $conversation->increment('unread_count');
-
             $convMessage = $conversation->messages()->create([
-                'direction' => 'inbound',
-                'body'      => $text,
-                'status'    => 'delivered',
-                'sent_at'   => now(),
+                'direction'           => \App\Models\ConversationMessage::DIRECTION_INBOUND,
+                'type'                => $type,
+                'body'                => $body,
+                'media_url'           => $mediaId,
+                'caption'             => $caption,
+                'status'              => 'delivered',
+                'sent_at'             => now(),
+                'platform_message_id' => $msgId,
+            ]);
+
+            $conversation->update([
+                'last_message_at'      => now(),
+                'last_incoming_at'     => now(),
+                'unread_count'         => $conversation->unread_count + 1,
+                'last_message_preview' => mb_substr($body ?: "[Received {$type}]", 0, 100),
+                'status'               => 'open',
             ]);
 
             broadcast(new \App\Events\MessageReceived($convMessage->load('conversation.contact')));

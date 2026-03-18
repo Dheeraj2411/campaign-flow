@@ -1,260 +1,196 @@
+<script setup>
+import { ref, computed } from 'vue';
+import { useForm, Link } from '@inertiajs/vue3';
+import AppLayout from '@/Layouts/AppLayout.vue';
+import BaseCard from '@/Components/BaseCard.vue';
+import BaseButton from '@/Components/BaseButton.vue';
+
+const props = defineProps({
+    contactGroups: Array,
+    templates: Array,
+});
+
+const currentStep = ref(1);
+
+const form = useForm({
+    name: '',
+    platform: 'whatsapp',
+    contact_group_id: 'all',
+    template_id: null,
+    scheduled_at: null,
+});
+
+const filteredTemplates = computed(() => {
+    return props.templates.filter(t => t.platform === form.platform);
+});
+
+const selectedTemplate = computed(() => {
+    return props.templates.find(t => t.id === form.template_id);
+});
+
+const nextStep = () => {
+    if (currentStep.value < 3) currentStep.value++;
+};
+
+const prevStep = () => {
+    if (currentStep.value > 1) currentStep.value--;
+};
+
+const submit = () => {
+    form.post(route('campaigns.store'));
+};
+</script>
+
 <template>
-    <AppLayout title="New Campaign" subtitle="Send a message campaign to your contacts">
-
-        <!-- Progress Steps -->
-        <div class="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
-            <template v-for="(s, i) in steps" :key="i">
-                <div class="flex items-center gap-2 shrink-0">
-                    <div class="flex items-center gap-2 cursor-pointer" @click="goToStep(i)">
-                        <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all"
-                             :class="stepClass(i)">
-                            <span v-if="currentStep > i" class="material-symbols-outlined text-[16px]">check</span>
-                            <span v-else>{{ i + 1 }}</span>
-                        </div>
-                        <span class="text-xs font-medium hidden sm:block"
-                              :class="currentStep === i ? 'text-admin-primary' : currentStep > i ? 'text-slate-500' : 'text-slate-300'">
-                            {{ s.label }}
-                        </span>
+    <AppLayout title="Launch Campaign" subtitle="Reach your audience in 3 easy steps">
+        <div class="max-w-4xl mx-auto">
+            <!-- Stepper Indicators -->
+            <div class="flex items-center justify-center mb-10">
+                <div v-for="step in 3" :key="step" class="flex items-center">
+                    <div :class="[
+                        'w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300',
+                        currentStep >= step ? 'bg-admin-primary text-white shadow-lg shadow-admin-primary/30' : 'bg-slate-100 text-slate-400'
+                    ]">
+                        {{ step }}
                     </div>
-                    <div v-if="i < steps.length - 1" class="h-px w-8 shrink-0"
-                         :class="currentStep > i ? 'bg-admin-primary' : 'bg-slate-200'" />
-                </div>
-            </template>
-        </div>
-
-        <!-- Step Panels -->
-        <div class="max-w-2xl">
-            <!-- Step 1: Name + Platform -->
-            <div v-if="currentStep === 0" class="card animate-slide-up">
-                <h2 class="text-base font-semibold text-slate-800 mb-4">Campaign Details</h2>
-                <div class="space-y-5">
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1.5">Campaign Name *</label>
-                        <input v-model="form.name" type="text" class="input"
-                               placeholder="Summer Sale Announcement" required />
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-3">Messaging Platform *</label>
-                        <div class="grid grid-cols-3 gap-3">
-                            <div v-for="p in platforms" :key="p.value"
-                                 class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 cursor-pointer transition-all"
-                                 :class="form.platform === p.value
-                                     ? 'border-admin-primary bg-admin-primary/6'
-                                     : 'border-slate-200 hover:border-slate-300'"
-                                 @click="form.platform = p.value">
-                                <div class="w-10 h-10 rounded-xl flex items-center justify-center"
-                                     :class="p.bg">
-                                    <span class="material-symbols-outlined text-[22px]" :class="p.color">{{ p.icon }}</span>
-                                </div>
-                                <span class="text-xs font-semibold text-slate-700">{{ p.label }}</span>
-                                <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
-                                     :class="form.platform === p.value ? 'border-admin-primary bg-admin-primary' : 'border-slate-300'">
-                                    <span v-if="form.platform === p.value" class="material-symbols-outlined text-white text-[12px]">check</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <div v-if="step < 3" :class="[
+                        'w-20 h-0.5 mx-2',
+                        currentStep > step ? 'bg-admin-primary' : 'bg-slate-100'
+                    ]"></div>
                 </div>
             </div>
 
-            <!-- Step 2: Select contacts -->
-            <div v-if="currentStep === 1" class="card animate-slide-up">
-                <h2 class="text-base font-semibold text-slate-800 mb-2">Select Contacts</h2>
-                <p class="text-xs text-slate-400 mb-5">Choose which contacts will receive this campaign</p>
-                <div class="space-y-3">
-                    <div
-                        v-for="g in contactGroups"
-                        :key="g.id"
-                        class="flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all"
-                        :class="form.contact_group_id === g.id
-                            ? 'border-admin-primary bg-admin-primary/6'
-                            : 'border-slate-200 hover:border-slate-300'"
-                        @click="form.contact_group_id = g.id"
-                    >
-                        <div class="flex-1">
-                            <p class="text-sm font-semibold text-slate-800">{{ g.name }}</p>
-                            <p class="text-xs text-slate-400">{{ g.count }} contacts</p>
-                        </div>
-                        <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center"
-                             :class="form.contact_group_id === g.id ? 'border-admin-primary bg-admin-primary' : 'border-slate-300'">
-                            <span v-if="form.contact_group_id === g.id" class="material-symbols-outlined text-white text-[12px]">check</span>
-                        </div>
-                    </div>
-                    <div v-if="!contactGroups.length" class="py-8 text-center text-slate-400 text-sm">
-                        No contact groups yet — <Link :href="route('contacts.index')" class="text-admin-primary font-medium">add contacts first</Link>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Step 3: Compose message -->
-            <div v-if="currentStep === 2" class="card animate-slide-up">
-                <h2 class="text-base font-semibold text-slate-800 mb-4">Compose Message</h2>
-
-                <!-- Template picker -->
-                <div v-if="templates.length" class="mb-4">
-                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Use a Template</label>
-                    <select class="input" @change="applyTemplate($event.target.value)">
-                        <option value="">— Start fresh —</option>
-                        <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600 mb-1.5">Message Body *</label>
-                    <textarea v-model="form.body" rows="6" class="input resize-none"
-                              placeholder="Hello {name}&#10;&#10;We have a special offer for you today..."></textarea>
-                    <p class="text-xs text-slate-400 mt-1.5">
-                        Use <code class="bg-slate-100 px-1 rounded text-admin-primary">{name}</code>,
-                        <code class="bg-slate-100 px-1 rounded text-admin-primary">{phone}</code> as personalisation variables.
-                    </p>
-                </div>
-
-                <!-- Live preview -->
-                <div v-if="previewBody" class="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                    <p class="text-xs font-semibold text-slate-500 mb-2">Preview (Sample Contact)</p>
-                    <p class="text-sm text-slate-700 whitespace-pre-wrap">{{ previewBody }}</p>
-                </div>
-            </div>
-
-            <!-- Step 4: Schedule -->
-            <div v-if="currentStep === 3" class="card animate-slide-up">
-                <h2 class="text-base font-semibold text-slate-800 mb-4">Schedule</h2>
-                <div class="space-y-4">
-                    <div class="grid grid-cols-2 gap-3">
-                        <div v-for="opt in scheduleOptions" :key="opt.value"
-                             class="flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all"
-                             :class="scheduleMode === opt.value
-                                 ? 'border-admin-primary bg-admin-primary/6'
-                                 : 'border-slate-200 hover:border-slate-300'"
-                             @click="scheduleMode = opt.value; if(opt.value==='now') form.scheduled_at = null">
-                            <span class="material-symbols-outlined text-[22px]"
-                                  :class="scheduleMode === opt.value ? 'text-admin-primary' : 'text-slate-400'">
-                                {{ opt.icon }}
-                            </span>
+            <div class="space-y-6">
+                <!-- Step 1: Destination -->
+                <div v-if="currentStep === 1" class="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <BaseCard class="p-8">
+                        <h3 class="text-xl font-bold text-slate-800 mb-6">Who are we reaching?</h3>
+                        <div class="space-y-6">
                             <div>
-                                <p class="text-sm font-semibold text-slate-700">{{ opt.label }}</p>
-                                <p class="text-xs text-slate-400">{{ opt.desc }}</p>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Campaign Name</label>
+                                <input v-model="form.name" type="text" class="input py-3 text-lg" placeholder="e.g. March Newsletter" />
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Select Platform</label>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <button type="button" @click="form.platform = 'whatsapp'" 
+                                                :class="['p-4 rounded-xl border-2 transition-all text-center flex flex-col items-center justify-center gap-1', 
+                                                        form.platform === 'whatsapp' ? 'border-[#25D366] bg-[#25D366]/5 text-[#25D366]' : 'border-slate-100 hover:border-slate-200 text-slate-500']">
+                                            <svg viewBox="0 0 24 24" class="w-6 h-6 fill-current" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.937 3.659 1.432 5.626 1.433h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                                            </svg>
+                                            WhatsApp
+                                        </button>
+                                        <button type="button" @click="form.platform = 'telegram'" 
+                                                :class="['p-4 rounded-xl border-2 transition-all text-center flex flex-col items-center justify-center gap-1', 
+                                                        form.platform === 'telegram' ? 'border-admin-primary bg-admin-primary/5 text-admin-primary' : 'border-slate-100 hover:border-slate-200 text-slate-500']">
+                                            <span class="material-symbols-outlined block">send</span>
+                                            Telegram
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Target Audience</label>
+                                    <select v-model="form.contact_group_id" class="input py-3">
+                                        <option v-for="group in contactGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div v-if="scheduleMode === 'later'">
-                        <label class="block text-xs font-semibold text-slate-600 mb-1.5">Scheduled Date & Time</label>
-                        <input v-model="form.scheduled_at" type="datetime-local" class="input"
-                               :min="minDateTime" />
+                    </BaseCard>
+                </div>
+
+                <!-- Step 2: Content -->
+                <div v-if="currentStep === 2" class="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
+                    <BaseCard class="p-8">
+                        <h3 class="text-xl font-bold text-slate-800 mb-6">Choose your message</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <!-- Template List -->
+                            <div class="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                                <div v-for="tpl in filteredTemplates" :key="tpl.id" 
+                                     @click="form.template_id = tpl.id"
+                                     :class="['p-4 rounded-xl border-2 cursor-pointer transition-all', 
+                                             form.template_id === tpl.id ? 'border-admin-primary bg-admin-primary/5' : 'border-slate-100 hover:border-slate-200']">
+                                    <div class="font-bold text-slate-800">{{ tpl.name }}</div>
+                                    <div class="text-xs text-slate-400 mt-1 truncate">{{ tpl.body }}</div>
+                                </div>
+                                <div v-if="!filteredTemplates.length" class="text-center py-10 text-slate-400 italic">
+                                    No approved templates found for {{ form.platform }}.
+                                </div>
+                            </div>
+
+                            <!-- Preview -->
+                            <div class="bg-slate-50 rounded-2xl p-6 border border-slate-100 min-h-[300px]">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Live Preview</label>
+                                <div v-if="selectedTemplate" class="bg-white p-4 rounded-lg shadow-sm border border-slate-100 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                                    {{ selectedTemplate.body }}
+                                </div>
+                                <div v-else class="h-full flex items-center justify-center text-slate-300 italic text-sm">
+                                    Select a template to preview...
+                                </div>
+                            </div>
+                        </div>
+                    </BaseCard>
+                </div>
+
+                <!-- Step 3: Finalize -->
+                <div v-if="currentStep === 3" class="space-y-6 animate-in fade-in zoom-in-95 duration-500">
+                    <BaseCard class="p-8">
+                        <h3 class="text-xl font-bold text-slate-800 mb-6">Finalize & Launch</h3>
+                        <div class="space-y-6">
+                            <div class="bg-admin-primary/5 p-6 rounded-2xl border border-admin-primary/10">
+                                <div class="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                        <span class="text-slate-400 block mb-1 uppercase text-[10px] font-bold">Campaign</span>
+                                        <span class="text-slate-800 font-bold text-lg">{{ form.name }}</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-400 block mb-1 uppercase text-[10px] font-bold">Target</span>
+                                        <span class="text-slate-800 font-bold text-lg">{{ contactGroups.find(g => g.id === form.contact_group_id)?.name }}</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-400 block mb-1 uppercase text-[10px] font-bold">Platform</span>
+                                        <span class="text-slate-800 font-bold capitalize">{{ form.platform }}</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-400 block mb-1 uppercase text-[10px] font-bold">Template</span>
+                                        <span class="text-slate-800 font-bold">{{ selectedTemplate?.name }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Schedule Release (Optional)</label>
+                                <input v-model="form.scheduled_at" type="datetime-local" class="input py-3" />
+                                <p class="text-[10px] text-slate-400 mt-2 italic">Leave empty to launch immediately after confirmation.</p>
+                            </div>
+                        </div>
+                    </BaseCard>
+                </div>
+
+                <!-- Navigation -->
+                <div class="flex justify-between items-center pt-4">
+                    <BaseButton v-if="currentStep > 1" variant="ghost" @click="prevStep">
+                        Back
+                    </BaseButton>
+                    <div v-else></div>
+
+                    <div class="flex gap-3">
+                        <BaseButton variant="ghost" :href="route('campaigns.index')">Cancel</BaseButton>
+                        <BaseButton v-if="currentStep < 3" variant="admin" 
+                                    :disabled="currentStep === 1 && !form.name"
+                                    @click="nextStep">
+                            Continue
+                        </BaseButton>
+                        <BaseButton v-else variant="admin" @click="submit" :loading="form.processing">
+                            {{ form.scheduled_at ? 'Schedule Campaign' : 'Launch Now' }}
+                        </BaseButton>
                     </div>
                 </div>
-            </div>
-
-            <!-- Step 5: Review -->
-            <div v-if="currentStep === 4" class="card animate-slide-up">
-                <h2 class="text-base font-semibold text-slate-800 mb-5">Review & Launch</h2>
-                <dl class="space-y-4">
-                    <div class="flex items-start justify-between py-3 border-b border-slate-100">
-                        <dt class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Campaign</dt>
-                        <dd class="text-sm font-semibold text-slate-800">{{ form.name || '—' }}</dd>
-                    </div>
-                    <div class="flex items-start justify-between py-3 border-b border-slate-100">
-                        <dt class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Platform</dt>
-                        <dd class="text-sm font-semibold capitalize text-slate-800">{{ form.platform || '—' }}</dd>
-                    </div>
-                    <div class="flex items-start justify-between py-3 border-b border-slate-100">
-                        <dt class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Schedule</dt>
-                        <dd class="text-sm font-semibold text-slate-800">{{ form.scheduled_at ? form.scheduled_at : 'Send immediately' }}</dd>
-                    </div>
-                    <div class="py-3 border-b border-slate-100">
-                        <dt class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Message Preview</dt>
-                        <dd class="text-sm text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-xl">{{ form.body || '—' }}</dd>
-                    </div>
-                </dl>
-            </div>
-
-            <!-- Nav buttons -->
-            <div class="flex items-center justify-between mt-5">
-                <BaseButton v-if="currentStep > 0" variant="white" icon="arrow_back" @click="currentStep--">Back</BaseButton>
-                <div v-else />
-                <BaseButton
-                    v-if="currentStep < steps.length - 1"
-                    variant="admin"
-                    icon="arrow_forward"
-                    @click="nextStep"
-                >Continue</BaseButton>
-                <BaseButton
-                    v-else
-                    variant="admin"
-                    icon="send"
-                    :loading="form.processing"
-                    @click="launch"
-                >Launch Campaign</BaseButton>
             </div>
         </div>
     </AppLayout>
 </template>
-
-<script setup>
-import { ref, computed } from 'vue'
-import { Link, useForm } from '@inertiajs/vue3'
-import AppLayout from '@/Layouts/AppLayout.vue'
-import BaseButton  from '@/Components/BaseButton.vue'
-
-const props = defineProps({
-    contacts:      { type: Array, default: () => [] },
-    contactGroups: { type: Array, default: () => [] },
-    templates:     { type: Array, default: () => [] },
-})
-
-const currentStep  = ref(0)
-const scheduleMode = ref('now')
-
-const steps = [
-    { label: 'Details'  },
-    { label: 'Contacts' },
-    { label: 'Message'  },
-    { label: 'Schedule' },
-    { label: 'Review'   },
-]
-
-const platforms = [
-    { value: 'whatsapp', label: 'WhatsApp', icon: 'chat',  bg: 'bg-emerald-100', color: 'text-emerald-600' },
-    { value: 'telegram', label: 'Telegram', icon: 'send',  bg: 'bg-blue-100',    color: 'text-blue-600'   },
-    { value: 'both',     label: 'Both',     icon: 'forum', bg: 'bg-violet-100',  color: 'text-violet-600' },
-]
-
-const scheduleOptions = [
-    { value: 'now',   label: 'Send Now',    desc: 'Dispatch immediately', icon: 'bolt' },
-    { value: 'later', label: 'Schedule',    desc: 'Pick a date & time',   icon: 'schedule' },
-]
-
-const form = useForm({
-    name:             '',
-    platform:         'whatsapp',
-    contact_group_id: null,
-    body:             '',
-    scheduled_at:     null,
-})
-
-const minDateTime = computed(() => new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16))
-
-const previewBody = computed(() => {
-    if (!form.body) return ''
-    return form.body.replace('{name}', 'John Doe').replace('{phone}', '+1 234 567 8900')
-})
-
-const stepClass = (i) => {
-    if (currentStep.value > i) return 'bg-admin-primary text-white'
-    if (currentStep.value === i) return 'bg-admin-primary text-white ring-4 ring-admin-primary/20'
-    return 'bg-slate-100 text-slate-400'
-}
-
-const goToStep = (i) => { if (i < currentStep.value) currentStep.value = i }
-
-const nextStep = () => { if (currentStep.value < steps.length - 1) currentStep.value++ }
-
-const applyTemplate = (id) => {
-    const t = props.templates.find(t => t.id == id)
-    if (t) form.body = t.body
-}
-
-const launch = () => {
-    form.post(route('campaigns.store'), { onSuccess: () => {} })
-}
-</script>

@@ -24,7 +24,8 @@ class PaymentController extends Controller
             'plan'    => 'required|in:pro,enterprise',
         ]);
 
-        $amount = $data['plan'] === 'pro' ? 2900 : 9900; // in cents/paise
+        $plan = \App\Models\Plan::where('slug', $data['plan'])->firstOrFail();
+        $amount = $plan->price;
         $currency = 'INR';
 
         $transaction = PaymentTransaction::create([
@@ -142,8 +143,13 @@ class PaymentController extends Controller
                 'gateway_payment_id' => $data['razorpay_payment_id'],
                 'status'             => 'completed',
                 'receipt_data'       => $data,
+                'activated_at'       => now(),
             ]);
-            return back()->with('success', 'Payment successful! Your plan will be activated by the admin shortly.');
+
+            // Auto-activate plan
+            $transaction->workspace->update(['plan' => $transaction->plan]);
+
+            return back()->with('success', 'Payment successful! Your ' . ucfirst($transaction->plan) . ' plan is now active.');
         }
 
         $transaction->update(['status' => 'failed', 'receipt_data' => $data]);
@@ -159,10 +165,16 @@ class PaymentController extends Controller
         if ($txnId) {
             $transaction = PaymentTransaction::find($txnId);
             if ($transaction && $transaction->workspace_id === $this->workspaceId() && $transaction->status === 'pending') {
-                $transaction->update(['status' => 'completed']);
+                $transaction->update([
+                    'status' => 'completed',
+                    'activated_at' => now(),
+                ]);
+                
+                // Auto-activate plan
+                $transaction->workspace->update(['plan' => $transaction->plan]);
             }
         }
 
-        return redirect()->route('billing')->with('success', 'Payment successful! Your plan will be activated by the admin shortly.');
+        return redirect()->route('billing')->with('success', 'Payment successful! Your plan is now active.');
     }
 }

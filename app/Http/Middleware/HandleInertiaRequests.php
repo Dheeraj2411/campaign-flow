@@ -60,6 +60,11 @@ class HandleInertiaRequests extends Middleware
                     'slug' => $user->activeWorkspace->slug,
                     'plan' => $user->activeWorkspace->plan,
                 ] : null,
+                'available_workspaces' => $user ? $user->workspaces->map(fn($w) => [
+                    'id' => $w->id,
+                    'name' => $w->name,
+                    'slug' => $w->slug,
+                ]) : [],
             ],
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),

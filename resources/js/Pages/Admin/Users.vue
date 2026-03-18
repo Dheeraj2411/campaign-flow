@@ -53,6 +53,21 @@
                 </div>
             </template>
 
+            <template #cell-profile_lock="{ row }">
+                <button
+                    @click="toggleProfileLock(row)"
+                    class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all"
+                    :class="row.can_edit_profile
+                        ? 'bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500'
+                        : 'bg-red-500 text-white shadow-sm shadow-red-200'"
+                >
+                    <span class="material-symbols-outlined text-[14px]">
+                        {{ row.can_edit_profile ? 'lock_open' : 'lock' }}
+                    </span>
+                    {{ row.can_edit_profile ? 'Unlocked' : 'Locked' }}
+                </button>
+            </template>
+
             <template #cell-created_at="{ row }">
                 <span class="text-xs text-slate-400">{{ formatDate(row.created_at) }}</span>
             </template>
@@ -112,11 +127,12 @@ const props = defineProps({
 })
 
 const columns = [
-    { key: 'name',       label: 'User',      sortable: true },
-    { key: 'workspace',  label: 'Workspace' },
-    { key: 'plan',       label: 'Plan' },
-    { key: 'is_active',  label: 'Status' },
-    { key: 'created_at', label: 'Joined',    sortable: true },
+    { key: 'name',         label: 'User',      sortable: true },
+    { key: 'workspace',    label: 'Workspace' },
+    { key: 'plan',         label: 'Plan' },
+    { key: 'is_active',    label: 'Status' },
+    { key: 'profile_lock', label: 'Profile Lock' },
+    { key: 'created_at',   label: 'Joined',    sortable: true },
 ]
 
 const showConfirm   = ref(false)
@@ -134,6 +150,12 @@ const doToggle = () => {
     toggling.value = true
     router.post(route('admin.users.toggle', confirmTarget.value.id), {}, {
         onFinish: () => { toggling.value = false; showConfirm.value = false },
+    })
+}
+
+const toggleProfileLock = (user) => {
+    router.post(route('admin.users.profile-permission', user.id), {}, {
+        preserveScroll: true
     })
 }
 

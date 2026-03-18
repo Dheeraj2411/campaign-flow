@@ -5,7 +5,7 @@
         <Transition name="fade">
             <div
                 v-if="sidebarOpen && isMobile"
-                class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm"
+                class="fixed inset-0 z-[55] bg-black/40 backdrop-blur-sm"
                 @click="sidebarOpen = false"
             />
         </Transition>
@@ -14,7 +14,7 @@
         <Transition name="slide-in-left">
             <aside
                 v-show="sidebarOpen || !isMobile"
-                class="fixed md:relative z-40 flex flex-col h-full bg-white shadow-sidebar
+                class="fixed md:relative z-[60] flex flex-col h-full bg-white shadow-sidebar
                        transition-all duration-250 ease-out"
                 :class="sidebarCollapsed && !isMobile ? 'w-16' : 'w-64'"
             >
@@ -91,8 +91,8 @@
         <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 
             <!-- Top bar -->
-            <header class="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-4 md:px-6 shrink-0">
-                <div class="flex items-center gap-3">
+            <header class="relative z-50 bg-white border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 md:px-6 py-3 sm:py-0 min-h-[64px] shrink-0 gap-3 sm:gap-0">
+                <div class="flex items-center justify-between sm:w-auto w-full gap-3">
                     <!-- Mobile hamburger -->
                     <button
                         class="md:hidden p-2 rounded-xl hover:bg-slate-100 text-slate-500"
@@ -108,7 +108,12 @@
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2">
+                <div class="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-3">
+                    <!-- Actions Slot -->
+                    <div class="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-hide">
+                        <slot name="actions" />
+                    </div>
+
                     <!-- Notifications -->
                     <div ref="notificationDropdownRef" class="relative">
                         <button 
@@ -125,13 +130,16 @@
                         <!-- Dropdown -->
                         <Transition name="fade">
                             <div v-if="notificationsOpen"
-                                 class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-100 overflow-hidden z-50">
-                                <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                                    <h3 class="font-semibold text-slate-800 text-sm">Notifications</h3>
+                                 class="absolute -right-2 top-full mt-3 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-50 animate-in slide-in-from-top-2 duration-200">
+                                <!-- Indicator pointer -->
+                                <div class="absolute -top-1 right-5 w-2.5 h-2.5 bg-slate-50 rotate-45 border-t border-l border-slate-200"></div>
+                                
+                                <div class="relative px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 backdrop-blur-sm">
+                                    <h3 class="font-bold text-slate-800 text-sm tracking-tight">Notifications</h3>
                                     <button 
                                         v-if="unreadCount > 0"
                                         @click="markAllAsRead"
-                                        class="text-xs text-admin-primary hover:text-admin-highlight font-medium transition-colors"
+                                        class="text-xs text-admin-primary hover:text-admin-highlight font-bold transition-colors"
                                     >
                                         Mark all read
                                     </button>
@@ -155,9 +163,23 @@
                                             </div>
                                             <!-- Content -->
                                             <div class="flex-1 min-w-0">
-                                                <p class="text-sm font-semibold text-slate-800">{{ notif.data.title }}</p>
-                                                <p class="text-xs text-slate-500 mt-0.5 line-clamp-2">{{ notif.data.message }}</p>
-                                                <p class="text-[10px] text-slate-400 mt-1 font-medium">{{ new Date(notif.created_at).toLocaleString() }}</p>
+                                                <div class="flex items-center gap-2 mb-1">
+                                                    <span v-if="notif.data.color" 
+                                                          :class="getImportanceBadgeClass(notif.data.color)"
+                                                          class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">
+                                                        {{ notif.data.color }}
+                                                    </span>
+                                                    <p class="text-sm font-bold truncate flex-1" :class="getImportanceTextColor(notif.data.color)">
+                                                        {{ notif.data.title }}
+                                                    </p>
+                                                </div>
+                                                <p class="text-xs mt-0.5 line-clamp-2 leading-relaxed font-medium" :class="notif.data.color ? getImportanceTextColor(notif.data.color, true) : 'text-slate-500'">
+                                                    {{ notif.data.message }}
+                                                </p>
+                                                <p class="text-[10px] text-slate-400 mt-2 font-bold tracking-wide uppercase opacity-70 flex items-center gap-1">
+                                                    <span class="material-symbols-outlined text-[12px]">schedule</span>
+                                                    {{ new Date(notif.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}
+                                                </p>
                                             </div>
                                             <!-- Unread dot -->
                                             <div v-if="notif.read_at === null" class="w-2 h-2 rounded-full bg-admin-primary mt-2 shrink-0"></div>
@@ -179,7 +201,42 @@
             </header>
 
             <!-- Page content -->
-            <main class="flex-1 overflow-y-auto p-4 md:p-6 animate-fade-in">
+            <main class="flex-1 overflow-y-auto p-4 md:p-6 animate-fade-in relative">
+                <!-- Flash Messages -->
+                <TransitionGroup 
+                    tag="div" 
+                    name="list" 
+                    class="fixed top-20 right-4 z-[100] flex flex-col gap-3 w-80 pointer-events-none"
+                >
+                    <div v-if="$page.props.flash.success" :key="'success'" 
+                         class="bg-white border-l-4 border-green-500 shadow-2xl rounded-lg p-4 flex items-center gap-3 pointer-events-auto animate-in slide-in-from-right duration-500">
+                        <div class="bg-green-100 p-2 rounded-full">
+                            <span class="material-symbols-outlined text-green-600 text-lg">check_circle</span>
+                        </div>
+                        <div class="flex-1 pr-4">
+                            <p class="text-sm font-bold text-slate-800">Success</p>
+                            <p class="text-xs text-slate-500 mt-0.5">{{ $page.props.flash.success }}</p>
+                        </div>
+                        <button @click="$page.props.flash.success = null" class="text-slate-300 hover:text-slate-500 transition-colors">
+                            <span class="material-symbols-outlined text-sm">close</span>
+                        </button>
+                    </div>
+
+                    <div v-if="$page.props.flash.error" :key="'error'" 
+                         class="bg-white border-l-4 border-red-500 shadow-2xl rounded-lg p-4 flex items-center gap-3 pointer-events-auto animate-in slide-in-from-right duration-500">
+                        <div class="bg-red-100 p-2 rounded-full">
+                            <span class="material-symbols-outlined text-red-600 text-lg">error</span>
+                        </div>
+                        <div class="flex-1 pr-4">
+                            <p class="text-sm font-bold text-slate-800">Error</p>
+                            <p class="text-xs text-slate-500 mt-0.5">{{ $page.props.flash.error }}</p>
+                        </div>
+                        <button @click="$page.props.flash.error = null" class="text-slate-300 hover:text-slate-500 transition-colors">
+                            <span class="material-symbols-outlined text-sm">close</span>
+                        </button>
+                    </div>
+                </TransitionGroup>
+
                 <slot />
             </main>
         </div>
@@ -249,6 +306,28 @@ const handleNotificationClick = async (notif) => {
     }
 }
 
+const getImportanceTextColor = (color, isMessage = false) => {
+    switch (color) {
+        case 'danger':  return isMessage ? 'text-red-600/90' : 'text-red-600';
+        case 'warning': return isMessage ? 'text-amber-600/90' : 'text-amber-600';
+        case 'success': return isMessage ? 'text-green-600/90' : 'text-green-600';
+        case 'info':
+        case 'primary': return isMessage ? 'text-indigo-600/90' : 'text-indigo-600';
+        default:        return isMessage ? 'text-slate-500' : 'text-slate-800';
+    }
+}
+
+const getImportanceBadgeClass = (color) => {
+    switch (color) {
+        case 'danger':  return 'bg-red-100 text-red-700 border border-red-200';
+        case 'warning': return 'bg-amber-100 text-amber-700 border border-amber-200';
+        case 'success': return 'bg-green-100 text-green-700 border border-green-200';
+        case 'info':
+        case 'primary': return 'bg-indigo-100 text-indigo-700 border border-indigo-200';
+        default:        return 'bg-slate-100 text-slate-700 border border-slate-200';
+    }
+}
+
 // Click outside handler for dropdown
 const notificationDropdownRef = ref(null)
 const closeDropdown = (e) => {
@@ -295,6 +374,16 @@ onUnmounted(() => {
     }
 })
 
+// Auto-hide flash messages
+watch(() => page.props.flash, (flash) => {
+    if (flash.success || flash.error) {
+        setTimeout(() => {
+            if (flash.success) page.props.flash.success = null
+            if (flash.error) page.props.flash.error = null
+        }, 5000)
+    }
+}, { deep: true })
+
 const userInitial = computed(() =>
     (page.props.auth?.user?.name ?? 'U').charAt(0).toUpperCase()
 )
@@ -326,4 +415,17 @@ const isActiveRoute = (routeName) => {
 
 .fade-enter-active, .fade-leave-active { transition: opacity .15s ease; }
 .fade-enter-from,  .fade-leave-to     { opacity: 0; }
+
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.5s ease;
+}
+.list-enter-from {
+  opacity: 0;
+  transform: translateX(30px);
+}
+.list-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
 </style>

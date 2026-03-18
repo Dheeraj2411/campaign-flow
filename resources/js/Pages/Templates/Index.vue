@@ -2,20 +2,34 @@
     <AppLayout title="Templates" subtitle="Reusable message templates for your campaigns">
         <DataTable :columns="columns" :rows="templates.data ?? []" :search-keys="['name']">
             <template #actions>
-                <BaseButton variant="admin" size="sm" icon="add" @click="openCreate">New Template</BaseButton>
-            </template>
-
-            <template #cell-name="{ row }">
-                <div>
-                    <p class="text-sm font-semibold text-slate-800">{{ row.name }}</p>
-                    <p class="text-xs text-slate-400 truncate max-w-xs mt-0.5">{{ row.body.substring(0, 80) }}{{ row.body.length > 80 ? '…' : '' }}</p>
+                <div class="flex gap-2">
+                    <BaseButton variant="ghost" size="sm" icon="sync" :loading="syncing" @click="syncWithMeta">Sync Status</BaseButton>
+                    <BaseButton variant="admin" size="sm" icon="add" :href="route('templates.create')">New Template</BaseButton>
                 </div>
             </template>
 
-            <template #cell-platform="{ row }">
-                <BaseBadge :variant="row.platform === 'whatsapp' ? 'success' : row.platform === 'telegram' ? 'info' : 'primary'">
-                    {{ row.platform }}
-                </BaseBadge>
+            <template #cell-name="{ row }">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div :class="['w-9 h-9 rounded-xl grid place-items-center shadow-sm border border-slate-50 shrink-0 overflow-hidden aspect-square', 
+                                 row.platform === 'whatsapp' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600']">
+                        <span class="material-symbols-outlined text-[18px]">{{ row.platform === 'whatsapp' ? 'whatsapp' : 'send' }}</span>
+                    </div>
+                    <div>
+                        <p class="text-sm font-semibold text-slate-800">{{ row.name }}</p>
+                        <p class="text-[10px] text-slate-400 uppercase tracking-tight">{{ row.category }} • {{ row.language }}</p>
+                    </div>
+                </div>
+            </template>
+
+            <template #cell-status="{ row }">
+                <div class="flex flex-col gap-1 items-start">
+                    <BaseBadge :variant="row.status === 'APPROVED' ? 'success' : row.status === 'PENDING' ? 'warning' : row.status === 'REJECTED' ? 'danger' : 'ghost'">
+                        {{ row.status }}
+                    </BaseBadge>
+                    <p v-if="row.status === 'REJECTED' && row.reason" class="text-[10px] text-red-500 max-w-[150px] leading-tight italic">
+                        "{{ row.reason }}"
+                    </p>
+                </div>
             </template>
 
             <template #cell-variables="{ row }">
@@ -27,7 +41,7 @@
 
             <template #rowActions="{ row }">
                 <div class="flex items-center justify-end gap-1">
-                    <button class="p-1.5 rounded-lg hover:bg-admin-primary/10 text-slate-400 hover:text-admin-primary transition-colors"
+                    <button v-if="row.status === 'APPROVED'" class="p-1.5 rounded-lg hover:bg-admin-primary/10 text-slate-400 hover:text-admin-primary transition-colors"
                             title="Send Test"
                             @click="openTestModal(row)">
                         <span class="material-symbols-outlined text-[16px]">send</span>
@@ -47,7 +61,7 @@
         <!-- Create / Edit Modal -->
         <BaseModal v-model="showForm" :title="editing ? 'Edit Template' : 'New Template'" max-width="lg">
             <div class="space-y-4">
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">Template Name *</label>
                         <input v-model="form.name" type="text" class="input" placeholder="Welcome Message" />
@@ -153,7 +167,7 @@ const props = defineProps({ templates: { type: Object, default: () => ({ data: [
 
 const columns = [
     { key: 'name',      label: 'Template', sortable: true },
-    { key: 'platform',  label: 'Platform' },
+    { key: 'status',    label: 'Status' },
     { key: 'variables', label: 'Variables' },
 ]
 
@@ -161,6 +175,7 @@ const showForm    = ref(false)
 const showDelete  = ref(false)
 const editing     = ref(false)
 const deleting    = ref(false)
+const syncing     = ref(false)
 const deleteTarget = ref(null)
 const bodyRef     = ref(null)
 const showTestModal = ref(false)
@@ -229,6 +244,13 @@ const submitTest = () => {
         onSuccess: () => {
             showTestModal.value = false
         }
+    })
+}
+
+const syncWithMeta = () => {
+    syncing.value = true
+    router.post(route('templates.sync'), {}, {
+        onFinish: () => syncing.value = false
     })
 }
 </script>
