@@ -40,8 +40,8 @@ COPY . .
 RUN composer install --no-interaction --no-dev --optimize-autoloader
 
 # Install Node dependencies & build assets
-# RUN npm install
-# RUN npm run build
+RUN npm install
+RUN npm run build
 
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache

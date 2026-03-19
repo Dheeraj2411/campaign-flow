@@ -20,7 +20,9 @@ use Illuminate\Support\Facades\Log;
  */
 class SendConversationMessageJob implements ShouldQueue
 {
-    use Queueable;
+    use InteractsWithQueue, Queueable;
+
+    public string $queue = 'conversation-send';
 
     /** Max retry attempts before marking as permanently failed. */
     public int $tries = 3;
@@ -28,9 +30,7 @@ class SendConversationMessageJob implements ShouldQueue
     /** Wait time between retries (seconds). */
     public array $backoff = [10, 30];
 
-    public function __construct(public int $messageId)
-    {
-    }
+    public function __construct(public int $messageId) {}
 
     public function handle(): void
     {
@@ -46,6 +46,10 @@ class SendConversationMessageJob implements ShouldQueue
         $conversation = $message->conversation;
         $workspace    = $conversation->workspace;
         $contact      = $conversation->contact;
+
+        if ($workspace) {
+            \App\Tenancy\TenantContext::setWorkspace($workspace);
+        }
 
         try {
             $result = [];
@@ -73,12 +77,13 @@ class SendConversationMessageJob implements ShouldQueue
 
             // Broadcast status change (try-catch so it doesn't affect the queue)
             $this->broadcastStatus($message);
-
         } catch (\Exception $e) {
             Log::error("Failed to send Inbox message {$this->messageId}: " . $e->getMessage());
             $message->update(['status' => 'failed']);
             $this->broadcastStatus($message);
             throw $e; // Re-throw so Laravel can retry
+        } finally {
+            \App\Tenancy\TenantContext::setWorkspace(null);
         }
     }
 

@@ -6,6 +6,7 @@ use App\Models\Workspace;
 use App\Notifications\WhatsAppTokenStatusNotification;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -21,7 +22,14 @@ class WhatsAppService
         $this->workspace = $workspace;
         $settings = $workspace->settings ?? [];
         $this->phoneNumberId = $settings['whatsapp_phone_number_id'] ?? '';
-        $this->accessToken   = $settings['whatsapp_access_token'] ?? '';
+
+        $encryptedToken = $settings['whatsapp_access_token'] ?? '';
+        try {
+            $this->accessToken = $encryptedToken ? Crypt::decryptString($encryptedToken) : '';
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+            // Fallback: token may not be encrypted yet (pre-migration data)
+            $this->accessToken = $encryptedToken;
+        }
     }
 
     /**
@@ -35,24 +43,32 @@ class WhatsAppService
         }
 
         $cacheKey = "whatsapp_token_valid:{$this->workspace->id}";
-        
-        return Cache::remember($cacheKey, 600, function() {
-            try {
-                /** @var Response $response */
-                $response = Http::withToken($this->accessToken)
-                    ->get("https://graph.facebook.com/v22.0/me");
 
-                if ($response->status() === 401 || $response->status() === 403) {
-                    $this->notifyUsers('expired');
-                    return false;
-                }
+        // Only return cached result if token was previously valid
+        if (Cache::get($cacheKey) === true) {
+            return true;
+        }
 
-                return $response->successful();
-            } catch (\Exception $e) {
-                Log::error("WhatsApp Token Verification Failed: " . $e->getMessage());
+        try {
+            /** @var Response $response */
+            $response = Http::withToken($this->accessToken)
+                ->get("https://graph.facebook.com/v22.0/me");
+
+            if ($response->status() === 401 || $response->status() === 403) {
+                $this->notifyUsers('expired');
                 return false;
             }
-        });
+
+            if ($response->successful()) {
+                Cache::put($cacheKey, true, 600);
+                return true;
+            }
+
+            return false;
+        } catch (\Exception $e) {
+            Log::error("WhatsApp Token Verification Failed: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -69,18 +85,12 @@ class WhatsAppService
     }
 
     /**
-     * Normalize phone number to international format (e.g. 919910494819)
+     * Normalize phone number to digits-only international format (e.g. 919910494819).
+     * Strips all non-digit characters but preserves the country code as-is.
      */
     private function normalizePhone(string $to): string
     {
-        $to = preg_replace('/[^0-9]/', '', $to);
-
-        // Auto-add India country code if number is 10 digits
-        if (strlen($to) === 10) {
-            $to = '91' . $to;
-        }
-
-        return $to;
+        return preg_replace('/[^0-9]/', '', $to);
     }
 
     /**

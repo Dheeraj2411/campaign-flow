@@ -7,7 +7,9 @@ use App\Models\Contact;
 use App\Models\MessageLog;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Sends a single campaign message to one contact via WhatsApp or Telegram.
@@ -21,7 +23,7 @@ use Illuminate\Support\Facades\Log;
  */
 class SendMessageJob implements ShouldQueue
 {
-    use Queueable;
+    use InteractsWithQueue, Queueable;
 
     /** Max retry attempts. */
     public int $tries = 3;
@@ -29,9 +31,10 @@ class SendMessageJob implements ShouldQueue
     /** Wait time between retries (seconds). */
     public array $backoff = [60, 300];
 
-    public function __construct(public int $messageLogId)
-    {
-    }
+    /** Timeout for each job (seconds). */
+    public int $timeout = 120;
+
+    public function __construct(public int $messageLogId) {}
 
     public function handle(): void
     {
@@ -51,6 +54,17 @@ class SendMessageJob implements ShouldQueue
             return;
         }
 
+        $throttleKey = "campaign-send:workspace:{$workspace->id}:{$log->platform}";
+        $limit = in_array($log->platform, ['whatsapp', 'telegram']) ? 30 : 60;
+
+        if (RateLimiter::tooManyAttempts($throttleKey, $limit)) {
+            Log::warning("SendMessageJob throttle limit hit: {$throttleKey}");
+            $this->release(15);
+            return;
+        }
+
+        RateLimiter::hit($throttleKey, 60);
+
         \App\Tenancy\TenantContext::setWorkspace($workspace);
 
         try {
@@ -66,12 +80,16 @@ class SendMessageJob implements ShouldQueue
             // Create/update conversation and message for inbox visibility
             $this->syncToInbox($log, $workspace, $contact, $result);
 
+            // Update campaign state after each message result.
+            (new \App\Services\CampaignStatusService())->refresh($log->campaign);
         } catch (\Exception $e) {
+            // Keep pending until retries are exhausted. Store last error for diagnostics.
             $log->update([
-                'status'        => 'failed',
                 'error_message' => substr($e->getMessage(), 0, 500),
             ]);
             throw $e; // Re-throw so Laravel can retry with backoff
+        } finally {
+            \App\Tenancy\TenantContext::setWorkspace(null);
         }
     }
 
@@ -151,6 +169,11 @@ class SendMessageJob implements ShouldQueue
                 'status'        => 'failed',
                 'error_message' => 'All retries exhausted: ' . ($exception?->getMessage() ?? 'Unknown error'),
             ]);
+
+            // Ensure campaign reflects final counts once message send is definitely complete.
+            if ($campaign = $log->campaign) {
+                (new \App\Services\CampaignStatusService())->refresh($campaign);
+            }
         }
     }
 }

@@ -16,9 +16,7 @@ class DispatchCampaignJob implements ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct(public int $campaignId)
-    {
-    }
+    public function __construct(public int $campaignId) {}
 
     /**
      * Execute the job.
@@ -27,15 +25,16 @@ class DispatchCampaignJob implements ShouldQueue
     {
         $campaign = Campaign::withoutGlobalScopes()->with('workspace')->find($this->campaignId);
 
-        if (!$campaign) {
+        if (!$campaign || in_array($campaign->status, [Campaign::STATUS_COMPLETED, Campaign::STATUS_FAILED])) {
+            return;
+        }
+
+        if (!$campaign->workspace) {
+            Log::error("DispatchCampaignJob: missing workspace for campaign {$this->campaignId}");
             return;
         }
 
         \App\Tenancy\TenantContext::setWorkspace($campaign->workspace);
-
-        if ($campaign->status === Campaign::STATUS_COMPLETED) {
-            return;
-        }
 
         try {
             $campaign->update(['status' => Campaign::STATUS_RUNNING]);
@@ -47,59 +46,32 @@ class DispatchCampaignJob implements ShouldQueue
                 $query->whereJsonContains('tags', $campaign->contact_group_id);
             }
 
-            $query->chunk(100, function ($contacts) use ($campaign) {
-                $logs = [];
-                foreach ($contacts as $contact) {
-                    $body = $campaign->template ? $campaign->template->body : $campaign->body;
-                    
-                    $message = preg_replace_callback('/\{\{?(\w+)\}?\}/', function ($matches) use ($contact) {
-                        $key = $matches[1];
-                        if ($key === 'name' || $key === '1') return $contact->name;
-                        if ($key === 'phone' || $key === '2') return $contact->phone;
-                        
-                        $custom = $contact->custom_attributes ?? [];
-                        return $custom[$key] ?? $matches[0];
-                    }, $body);
+            $jobs = [];
 
-                    $logs[] = [
-                        'campaign_id'   => $campaign->id,
-                        'contact_id'    => $contact->id,
-                        'platform'      => $campaign->platform,
-                        'final_message' => $message,
-                        'status'        => 'pending',
-                        'created_at'    => now(),
-                        'updated_at'    => now(),
-                    ];
-                }
-
-                MessageLog::insert($logs);
-
-                $insertedLogs = MessageLog::where('campaign_id', $campaign->id)
-                    ->where('status', 'pending')
-                    ->whereIn('contact_id', $contacts->pluck('id'))
-                    ->get();
-
-                foreach ($insertedLogs as $log) {
-                    SendMessageJob::dispatch($log->id);
-                }
+            $query->chunk(100, function ($contacts) use ($campaign, &$jobs) {
+                $jobs[] = new CampaignSendChunkJob($campaign->id, $contacts->pluck('id')->toArray());
             });
 
-            $campaign->update(['status' => Campaign::STATUS_COMPLETED]);
-
-            // Notify workspace owner that the campaign is done
-            try {
-                $owner = $campaign->workspace?->owner;
-                if ($owner) {
-                    $owner->notify(new \App\Notifications\CampaignCompleted($campaign));
-                }
-            } catch (\Exception $e) {
-                Log::warning("Failed to send CampaignCompleted notification: {$e->getMessage()}");
+            if (empty($jobs)) {
+                $campaign->update(['status' => Campaign::STATUS_COMPLETED]);
+                return;
             }
 
-        } catch (\Exception $e) {
+            // We cannot mark campaign completed until all SendMessageJob operations are finished.
+            // Batch completion here means only dispatch chunks; actual delivery completion is tracked per message.
+            \Illuminate\Support\Facades\Bus::batch($jobs)
+                ->name("campaign-{$campaign->id}-batch")
+                ->catch(function (\Illuminate\Bus\Batch $batch, \Throwable $e) use ($campaign) {
+                    Log::error("Campaign batch failed ({$campaign->id}): " . $e->getMessage());
+                    $campaign->update(['status' => Campaign::STATUS_FAILED]);
+                })
+                ->dispatch();
+        } catch (\Throwable $e) {
             Log::error("Campaign #{$this->campaignId} dispatch failed: {$e->getMessage()}");
             $campaign->update(['status' => Campaign::STATUS_FAILED]);
             throw $e;
+        } finally {
+            \App\Tenancy\TenantContext::setWorkspace(null);
         }
     }
 }

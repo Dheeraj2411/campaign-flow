@@ -86,10 +86,16 @@ class WhatsAppWebhookController extends Controller
     {
         $signature = $request->header('X-Hub-Signature-256');
         if (!$signature) {
-            return true; // Allow unsigned requests (local dev)
+            Log::warning('WhatsApp Webhook received without signature header — rejecting.');
+            return false;
         }
 
-        $secret   = config('services.whatsapp.app_secret', 'campaignflow_app_secret');
+        $secret = config('services.whatsapp.app_secret');
+        if (empty($secret)) {
+            Log::error('WHATSAPP_APP_SECRET is not configured — cannot verify webhook.');
+            return false;
+        }
+
         $expected = 'sha256=' . hash_hmac('sha256', $request->getContent(), $secret);
 
         if (!hash_equals($expected, $signature)) {
@@ -144,9 +150,10 @@ class WhatsAppWebhookController extends Controller
             ->first();
 
         if (!$log && $recipientId) {
-            // Fallback: find the latest pending message for this recipient
+            // Fallback: find the latest pending message for this recipient (exact match)
+            $normalizedRecipient = '+' . ltrim(preg_replace('/[^0-9]/', '', $recipientId), '+');
             $log = MessageLog::where('platform', 'whatsapp')
-                ->whereHas('contact', fn($q) => $q->where('phone', 'like', "%{$recipientId}"))
+                ->whereHas('contact', fn($q) => $q->where('phone', $normalizedRecipient))
                 ->where('status', 'pending')
                 ->latest()
                 ->first();
@@ -183,17 +190,17 @@ class WhatsAppWebhookController extends Controller
 
         if (!$fromPhone) return;
 
-        // Find or create the contact (fuzzy match on last 10 digits)
-        $last10  = substr(preg_replace('/[^0-9]/', '', $fromPhone), -10);
+        // Find or create the contact (exact match on normalized phone)
+        $normalizedPhone = '+' . ltrim(preg_replace('/[^0-9]/', '', $fromPhone), '+');
         $contact = Contact::where('workspace_id', $workspace->id)
-            ->where('phone', 'like', "%{$last10}")
+            ->where('phone', $normalizedPhone)
             ->first();
 
         if (!$contact) {
             $contact = Contact::create([
                 'workspace_id' => $workspace->id,
                 'name'         => $message['profile']['name'] ?? 'Unknown WhatsApp User',
-                'phone'        => '+' . ltrim($fromPhone, '+'),
+                'phone'        => $normalizedPhone,
             ]);
         }
 
@@ -217,7 +224,8 @@ class WhatsAppWebhookController extends Controller
         } else {
             // Media message (image, video, document, audio, sticker)
             $mediaObj          = $message[$msgType] ?? [];
-            $msgData['media_url'] = $mediaObj['id'] ?? null;
+            $mediaId            = $mediaObj['id'] ?? null;
+            $msgData['media_url'] = $mediaId ? $this->resolveMediaUrl($mediaId, $workspace) : null;
             $msgData['caption']   = $mediaObj['caption'] ?? null;
             $msgData['body']      = "[Received {$msgType}]";
         }
@@ -225,11 +233,11 @@ class WhatsAppWebhookController extends Controller
         // Save the message
         $convMessage = $conversation->messages()->create($msgData);
 
-        // Update conversation metadata
+        // Update conversation metadata (atomic increment to avoid race condition)
         $conversation->update([
             'last_message_at'      => now(),
             'last_incoming_at'     => now(),
-            'unread_count'         => $conversation->unread_count + 1,
+            'unread_count'         => \Illuminate\Support\Facades\DB::raw('unread_count + 1'),
             'last_message_preview' => mb_substr($msgData['body'] ?? "[Received {$msgType}]", 0, 100),
         ]);
 
@@ -238,6 +246,45 @@ class WhatsAppWebhookController extends Controller
             broadcast(new \App\Events\MessageReceived($convMessage->load('conversation.contact')));
         } catch (\Exception $e) {
             Log::warning("Broadcast failed (incoming message): " . $e->getMessage());
+        }
+
+        // Trigger automation workflows for incoming messages
+        try {
+            (new \App\Services\AutomationWorkflowService())->executeTrigger('incoming_message', [
+                'workspace_id' => $workspace->id,
+                'contact_id' => $contact->id,
+                'conversation_id' => $conversation->id,
+                'message_id' => $convMessage->id,
+                'message' => $convMessage->body,
+                'platform' => 'whatsapp',
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning("Automation workflow failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Resolve a WhatsApp media ID to a downloadable URL via Graph API.
+     */
+    private function resolveMediaUrl(string $mediaId, Workspace $workspace): ?string
+    {
+        try {
+            $encToken = $workspace->settings['whatsapp_access_token'] ?? null;
+            if (!$encToken) return null;
+
+            try {
+                $token = \Illuminate\Support\Facades\Crypt::decryptString($encToken);
+            } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+                $token = $encToken; // legacy unencrypted
+            }
+
+            $response = \Illuminate\Support\Facades\Http::withToken($token)
+                ->get("https://graph.facebook.com/v22.0/{$mediaId}");
+
+            return $response->json('url');
+        } catch (\Exception $e) {
+            Log::warning("Failed to resolve media URL for {$mediaId}: " . $e->getMessage());
+            return null;
         }
     }
 }

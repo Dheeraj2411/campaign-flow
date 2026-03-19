@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Inertia\Inertia;
 
 class SettingsController extends Controller
@@ -52,16 +54,25 @@ class SettingsController extends Controller
         $settings = $workspace->settings ?? [];
 
         // Check if Telegram Bot Token is being changed
-        $oldTelegramToken = $settings['telegram_bot_token'] ?? null;
+        $oldTelegramTokenEnc = $settings['telegram_bot_token'] ?? null;
         $newTelegramToken = $data['telegram_bot_token'] ?? null;
+
+        // Decrypt old token for comparison (may be unencrypted in legacy data)
+        $oldTelegramToken = null;
+        if ($oldTelegramTokenEnc) {
+            try {
+                $oldTelegramToken = Crypt::decryptString($oldTelegramTokenEnc);
+            } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+                $oldTelegramToken = $oldTelegramTokenEnc; // legacy unencrypted
+            }
+        }
 
         if ($newTelegramToken !== $oldTelegramToken) {
             try {
                 if ($newTelegramToken) {
-                    // Register Webhook with Telegram
+                    // Register Webhook with Telegram (use plaintext token for API call)
                     $webhookUrl = config('app.url') . "/telegram/webhook/{$workspace->slug}";
                     
-                    // We must call json() or similar on the Response, or explicitly get the HttpResponse object
                     $httpResponse = \Illuminate\Support\Facades\Http::post("https://api.telegram.org/bot{$newTelegramToken}/setWebhook", [
                         'url' => $webhookUrl,
                     ]);
@@ -72,7 +83,7 @@ class SettingsController extends Controller
                         return back()->with('error', 'Failed to register Telegram Webhook: ' . $errorDescription);
                     }
                 } elseif ($oldTelegramToken && !$newTelegramToken) {
-                    // Delete Webhook from Telegram
+                    // Delete Webhook from Telegram (use decrypted old token)
                     \Illuminate\Support\Facades\Http::post("https://api.telegram.org/bot{$oldTelegramToken}/deleteWebhook");
                 }
             } catch (\Exception $e) {
@@ -80,8 +91,19 @@ class SettingsController extends Controller
             }
         }
 
+        // Encrypt sensitive tokens before storage
+        $sensitiveKeys = ['whatsapp_access_token', 'telegram_bot_token'];
+        foreach ($sensitiveKeys as $key) {
+            if (!empty($data[$key])) {
+                $data[$key] = Crypt::encryptString($data[$key]);
+            }
+        }
+
         $settings = array_merge($settings, $data);
         $workspace->update(['settings' => $settings]);
+
+        // Clear cached token validation so new credentials are verified fresh
+        Cache::forget("whatsapp_token_valid:{$workspace->id}");
 
         return back()->with('success', 'API credentials saved successfully.');
     }

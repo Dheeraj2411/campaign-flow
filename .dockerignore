@@ -9,8 +9,12 @@ storage/framework/cache/data/*
 storage/framework/sessions/*
 storage/framework/testing/*
 storage/framework/views/*
-public/build
+
 public/storage
 docker-compose.yml
 .dockerignore
 Dockerfile
+bootstrap/cache/packages.php
+bootstrap/cache/services.php
+bootstrap/cache/config.php
+bootstrap/cache/routes-v7.php

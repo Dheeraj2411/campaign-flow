@@ -25,31 +25,40 @@ class CampaignController extends Controller
     public function index()
     {
         return Inertia::render('Campaigns/Index', [
-            'campaigns' => Campaign::latest()
+            'campaigns' => Campaign::where('workspace_id', $this->workspaceId())
+                ->latest()
                 ->paginate(20),
         ]);
     }
 
     public function create()
     {
-        $tags = Contact::whereNotNull('tags')
+        $this->authorize('create-campaign');
+
+        $tags = Contact::where('workspace_id', $this->workspaceId())
+            ->whereNotNull('tags')
             ->pluck('tags')
             ->flatten()
             ->unique()
             ->values()
             ->map(fn($tag) => ['id' => $tag, 'name' => "Tag: $tag"]);
 
+        $segments = \App\Models\ContactSegment::where('workspace_id', $this->workspaceId())->get();
+
         return Inertia::render('Campaigns/Create', [
             'contactGroups' => array_merge([['id' => 'all', 'name' => 'All Contacts']], $tags->toArray()),
-            'templates' => MessageTemplate::where(function($q) {
+            'contactSegments' => $segments,
+            'templates' => MessageTemplate::where(function ($q) {
                 $q->where('platform', 'telegram')
-                  ->orWhere('status', MessageTemplate::STATUS_APPROVED);
+                    ->orWhere('status', MessageTemplate::STATUS_APPROVED);
             })->get(['id', 'name', 'body', 'platform', 'status']),
         ]);
     }
 
     public function store(Request $request)
     {
+        $this->authorize('create-campaign');
+
         $workspace = auth()->user()->activeWorkspace;
 
         if (!$this->usage->canCreateCampaign($workspace)) {
@@ -61,14 +70,22 @@ class CampaignController extends Controller
             'platform'         => 'required|in:whatsapp,telegram',
             'template_id'      => 'required|exists:message_templates,id',
             'contact_group_id' => 'required|string',
+            'contact_segment_id' => 'nullable|exists:contact_segments,id',
             'scheduled_at'     => 'nullable|date|after:now',
         ]);
 
-        // Estimate message count
-        $query = Contact::query();
-        if ($data['contact_group_id'] !== 'all') {
+        // Estimate message count — scope to this workspace
+        $query = Contact::where('workspace_id', $workspace->id);
+
+        if (!empty($data['contact_segment_id'])) {
+            $segment = \App\Models\ContactSegment::find($data['contact_segment_id']);
+            if ($segment) {
+                $query = $query->segment($segment);
+            }
+        } else if ($data['contact_group_id'] !== 'all') {
             $query->whereJsonContains('tags', $data['contact_group_id']);
         }
+
         $contactCount = $query->count();
 
         if (!$this->usage->canSendMessage($workspace, $contactCount)) {
@@ -85,6 +102,7 @@ class CampaignController extends Controller
 
         $campaign = Campaign::create([
             ...$data,
+            'workspace_id' => $workspace->id,
             'contact_group_id' => $data['contact_group_id'] === 'all' ? null : $data['contact_group_id'],
             'status' => $data['scheduled_at'] ? Campaign::STATUS_SCHEDULED : Campaign::STATUS_DRAFT,
         ]);
@@ -98,7 +116,7 @@ class CampaignController extends Controller
 
     public function show(Campaign $campaign)
     {
-        abort_if($campaign->workspace_id !== $this->workspaceId(), 403);
+        $this->authorize('view-campaign', $campaign);
 
         $campaign->load(['template']);
         $campaign->loadCount([
@@ -120,7 +138,7 @@ class CampaignController extends Controller
 
     public function destroy(Campaign $campaign)
     {
-        abort_if($campaign->workspace_id !== $this->workspaceId(), 403);
+        $this->authorize('delete-campaign', $campaign);
         $campaign->delete();
         return back()->with('success', 'Campaign deleted.');
     }

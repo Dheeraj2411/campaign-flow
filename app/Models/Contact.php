@@ -13,7 +13,13 @@ class Contact extends Model
     use HasFactory, TenantScope;
 
     protected $fillable = [
-        'workspace_id', 'name', 'phone', 'telegram_username', 'telegram_chat_id', 'tags', 'custom_attributes',
+        'workspace_id',
+        'name',
+        'phone',
+        'telegram_username',
+        'telegram_chat_id',
+        'tags',
+        'custom_attributes',
     ];
 
     protected $casts = [
@@ -26,14 +32,23 @@ class Contact extends Model
     {
         $query->when($filters['search'] ?? null, function ($query, $search) {
             $query->where(function ($query) use ($search) {
-                $query->where('name', 'like', '%'.$search.'%')
-                    ->orWhere('phone', 'like', '%'.$search.'%')
-                    ->orWhere('telegram_username', 'like', '%'.$search.'%');
+                $query->where('name', 'like', '%' . $search . '%')
+                    ->orWhere('phone', 'like', '%' . $search . '%')
+                    ->orWhere('telegram_username', 'like', '%' . $search . '%');
             });
         })->when($filters['tag'] ?? null, function ($query, $tag) {
             // Postgres JSONB containment check
             $query->whereJsonContains('tags', $tag);
         });
+    }
+
+    public function scopeSegment($query, ?ContactSegment $segment)
+    {
+        if (!$segment || !is_array($segment->conditions)) {
+            return $query;
+        }
+
+        return $segment->scopeApplyConditions($query, $segment->conditions);
     }
 
     // ── Relations ──────────────────────────────────────────────

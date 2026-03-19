@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('conversation_messages', function (Blueprint $table) {
-            $table->timestamp('sent_at')->nullable();
-        });
+        if (!Schema::hasColumn('conversation_messages', 'sent_at')) {
+            Schema::table('conversation_messages', function (Blueprint $table) {
+                $table->timestamp('sent_at')->nullable();
+            });
+        }
     }
 
     /**
@@ -21,8 +23,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('conversation_messages', function (Blueprint $table) {
-            $table->dropColumn('sent_at');
-        });
+        if (Schema::hasColumn('conversation_messages', 'sent_at')) {
+            Schema::table('conversation_messages', function (Blueprint $table) {
+                $table->dropColumn('sent_at');
+            });
+        }
     }
 };

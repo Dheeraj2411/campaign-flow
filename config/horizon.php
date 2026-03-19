@@ -69,7 +69,7 @@ return [
 
     'prefix' => env(
         'HORIZON_PREFIX',
-        Str::slug(env('APP_NAME', 'laravel'), '_').'_horizon:'
+        Str::slug(env('APP_NAME', 'laravel'), '_') . '_horizon:'
     ),
 
     /*
@@ -199,15 +199,15 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['default'],
+            'queue' => ['campaign-dispatch', 'campaign-send', 'conversation-send', 'notifications', 'imports'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
-            'maxProcesses' => 1,
+            'maxProcesses' => 2,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 128,
-            'tries' => 1,
-            'timeout' => 60,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 120,
             'nice' => 0,
         ],
     ],
@@ -215,9 +215,27 @@ return [
     'environments' => [
         'production' => [
             'supervisor-1' => [
-                'maxProcesses' => 10,
+                'maxProcesses' => 20,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
+            ],
+            'supervisor-campaign-send' => [
+                'connection' => 'redis',
+                'queue' => ['campaign-send'],
+                'balance' => 'auto',
+                'maxProcesses' => 40,
+                'memory' => 256,
+                'tries' => 3,
+                'timeout' => 120,
+            ],
+            'supervisor-conversation-send' => [
+                'connection' => 'redis',
+                'queue' => ['conversation-send'],
+                'balance' => 'auto',
+                'maxProcesses' => 20,
+                'memory' => 256,
+                'tries' => 3,
+                'timeout' => 90,
             ],
         ],
 

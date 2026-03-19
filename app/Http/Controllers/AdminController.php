@@ -15,7 +15,7 @@ class AdminController extends Controller
      */
     private function authorizeAdmin(): void
     {
-        abort_if(auth()->id() !== 1, 403, 'Admin access only.');
+        abort_if(!auth()->user()?->isPlatformAdmin(), 403, 'Admin access only.');
     }
 
     public function dashboard()

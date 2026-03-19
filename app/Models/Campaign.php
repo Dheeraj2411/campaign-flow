@@ -14,8 +14,14 @@ class Campaign extends Model
     use HasFactory, TenantScope;
 
     protected $fillable = [
-        'workspace_id', 'name', 'platform', 'status',
-        'contact_group_id', 'body', 'template_id', 'scheduled_at',
+        'workspace_id',
+        'name',
+        'platform',
+        'status',
+        'contact_group_id',
+        'body',
+        'template_id',
+        'scheduled_at',
     ];
 
     protected $casts = [
@@ -28,6 +34,7 @@ class Campaign extends Model
     const STATUS_RUNNING   = 'running';
     const STATUS_COMPLETED = 'completed';
     const STATUS_FAILED    = 'failed';
+    const STATUS_PARTIAL   = 'partial';
 
     // ── Relations ──────────────────────────────────────────────
     public function workspace(): BelongsTo
