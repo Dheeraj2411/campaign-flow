@@ -47,5 +47,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('create-campaign', fn($user) => (new \App\Policies\CampaignPolicy)->create($user));
         Gate::define('view-contact-segment', fn($user, $segment) => (new \App\Policies\ContactSegmentPolicy)->view($user, $segment));
         Gate::define('create-contact-segment', fn($user) => (new \App\Policies\ContactSegmentPolicy)->create($user));
+        Gate::define('delete-campaign', fn($user, $campaign) => (new \App\Policies\CampaignPolicy)->delete($user, $campaign));
     }
 }

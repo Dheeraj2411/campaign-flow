@@ -16,7 +16,8 @@ class MessageTemplateController extends Controller
     public function index()
     {
         return Inertia::render('Templates/Index', [
-            'templates' => MessageTemplate::latest()
+            'templates' => MessageTemplate::where('workspace_id', $this->workspaceId())
+                ->latest()
                 ->paginate(20),
         ]);
     }
@@ -79,6 +80,8 @@ class MessageTemplateController extends Controller
 
     public function update(Request $request, MessageTemplate $template)
     {
+        abort_if($template->workspace_id !== $this->workspaceId(), 403);
+
         $data = $request->validate([
             'name'     => 'required|string|max:255',
             'body'     => 'required|string',
@@ -91,6 +94,8 @@ class MessageTemplateController extends Controller
 
     public function destroy(MessageTemplate $template)
     {
+        abort_if($template->workspace_id !== $this->workspaceId(), 403);
+
         $template->delete();
         return back()->with('success', 'Template deleted.');
     }

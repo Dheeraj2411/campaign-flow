@@ -51,6 +51,28 @@ class SettingsController extends Controller
             'telegram_bot_token'           => 'nullable|string|max:255',
         ]);
 
+        // ── Validate WhatsApp credentials against Meta Graph API ──
+        $waToken   = $data['whatsapp_access_token'] ?? null;
+        $waPhoneId = $data['whatsapp_phone_number_id'] ?? null;
+
+        if ($waToken && $waPhoneId) {
+            try {
+                $waResponse = \Illuminate\Support\Facades\Http::withToken($waToken)
+                    ->get("https://graph.facebook.com/v21.0/{$waPhoneId}", [
+                        'fields' => 'id',
+                    ]);
+
+                if (!$waResponse->successful()) {
+                    $waError = $waResponse->json('error.message')
+                            ?? $waResponse->json('error.error_user_msg')
+                            ?? 'Invalid credentials';
+                    return back()->with('error', 'WhatsApp API validation failed: ' . $waError);
+                }
+            } catch (\Exception $e) {
+                return back()->with('error', 'Could not reach WhatsApp API: ' . $e->getMessage());
+            }
+        }
+
         $settings = $workspace->settings ?? [];
 
         // Check if Telegram Bot Token is being changed

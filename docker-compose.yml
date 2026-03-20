@@ -84,7 +84,6 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    # No --requirepass flag = no password required
     command: redis-server --save 60 1 --loglevel warning
     volumes:
       - campaignflow-redis-data:/data
@@ -115,6 +114,18 @@ services:
     networks:
       - campaignflow-net
 
+  # ── Added Adminer Here ──
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    depends_on:
+      - postgres
+    networks:
+      - campaignflow-net
+  # ────────────────────────
+
   worker:
     build:
       context: .
@@ -129,6 +140,10 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      - APP_NAME=${APP_NAME:-CampaignFlow}
+      - APP_ENV=${APP_ENV:-production}
+      - APP_KEY=${APP_KEY}
+      - APP_URL=${APP_URL:-http://localhost:8000}
       - DB_CONNECTION=pgsql
       - DB_HOST=postgres
       - DB_PORT=5432

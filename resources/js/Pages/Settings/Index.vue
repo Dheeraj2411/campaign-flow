@@ -8,7 +8,8 @@
                 <form @submit.prevent="saveGeneral" class="space-y-4">
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">Workspace Name</label>
-                        <input v-model="generalForm.name" type="text" class="input" required />
+                        <input v-model="generalForm.name" type="text" class="input" :class="{ 'border-red-400': generalForm.errors.name }" required />
+                        <p v-if="generalForm.errors.name" class="text-xs text-red-500 mt-1">{{ generalForm.errors.name }}</p>
                     </div>
                     <div class="flex justify-end pt-2">
                         <BaseButton variant="admin" :loading="generalForm.processing" type="submit">Save Name</BaseButton>
@@ -26,7 +27,8 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold text-slate-600 mb-1.5">Email Address</label>
-                            <input v-model="inviteForm.email" type="email" class="input" placeholder="colleague@example.com" required />
+                            <input v-model="inviteForm.email" type="email" class="input" :class="{ 'border-red-400': inviteForm.errors.email }" placeholder="colleague@example.com" required />
+                            <p v-if="inviteForm.errors.email" class="text-xs text-red-500 mt-1">{{ inviteForm.errors.email }}</p>
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-600 mb-1.5">Role</label>
@@ -65,15 +67,18 @@
                 <form @submit.prevent="saveSettings" class="space-y-4">
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">Phone Number ID</label>
-                        <input v-model="settingsForm.whatsapp_phone_number_id" type="text" class="input" placeholder="e.g. 1029384756" />
+                        <input v-model="settingsForm.whatsapp_phone_number_id" type="text" class="input" :class="{ 'border-red-400': settingsForm.errors.whatsapp_phone_number_id }" placeholder="e.g. 1029384756" />
+                        <p v-if="settingsForm.errors.whatsapp_phone_number_id" class="text-xs text-red-500 mt-1">{{ settingsForm.errors.whatsapp_phone_number_id }}</p>
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">WhatsApp Business Account ID</label>
-                        <input v-model="settingsForm.whatsapp_business_account_id" type="text" class="input" placeholder="e.g. 9876543210" />
+                        <input v-model="settingsForm.whatsapp_business_account_id" type="text" class="input" :class="{ 'border-red-400': settingsForm.errors.whatsapp_business_account_id }" placeholder="e.g. 9876543210" />
+                        <p v-if="settingsForm.errors.whatsapp_business_account_id" class="text-xs text-red-500 mt-1">{{ settingsForm.errors.whatsapp_business_account_id }}</p>
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">Permanent Access Token</label>
-                        <input v-model="settingsForm.whatsapp_access_token" type="password" class="input" placeholder="EAA..." />
+                        <input v-model="settingsForm.whatsapp_access_token" type="password" class="input" :class="{ 'border-red-400': settingsForm.errors.whatsapp_access_token }" placeholder="EAA..." />
+                        <p v-if="settingsForm.errors.whatsapp_access_token" class="text-xs text-red-500 mt-1">{{ settingsForm.errors.whatsapp_access_token }}</p>
                     </div>
                     
                     <div class="bg-slate-50 p-4 rounded-lg mt-4 text-sm text-slate-600">
@@ -97,7 +102,8 @@
                 <form @submit.prevent="saveSettings" class="space-y-4">
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1.5">Bot Token</label>
-                        <input v-model="settingsForm.telegram_bot_token" type="password" class="input" placeholder="123456789:AAH..." />
+                        <input v-model="settingsForm.telegram_bot_token" type="password" class="input" :class="{ 'border-red-400': settingsForm.errors.telegram_bot_token }" placeholder="123456789:AAH..." />
+                        <p v-if="settingsForm.errors.telegram_bot_token" class="text-xs text-red-500 mt-1">{{ settingsForm.errors.telegram_bot_token }}</p>
                     </div>
 
                     <div class="bg-slate-50 p-4 rounded-lg mt-4 text-sm text-slate-600">

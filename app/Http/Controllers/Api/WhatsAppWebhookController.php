@@ -233,13 +233,15 @@ class WhatsAppWebhookController extends Controller
         // Save the message
         $convMessage = $conversation->messages()->create($msgData);
 
-        // Update conversation metadata (atomic increment to avoid race condition)
+        // Update conversation metadata
         $conversation->update([
-            'last_message_at'      => now(),
-            'last_incoming_at'     => now(),
-            'unread_count'         => \Illuminate\Support\Facades\DB::raw('unread_count + 1'),
+            'last_message_at' => now(),
+            'last_incoming_at' => now(),
             'last_message_preview' => mb_substr($msgData['body'] ?? "[Received {$msgType}]", 0, 100),
         ]);
+
+        // Atomic increment — avoids DB::raw cast issue
+        $conversation->increment('unread_count');
 
         // Broadcast for real-time inbox updates
         try {

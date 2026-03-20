@@ -1,4 +1,4 @@
-FROM php:8.2-fpm
+FROM php:8.4-fpm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -37,7 +37,8 @@ WORKDIR /var/www/html
 COPY . .
 
 # Install PHP dependencies
-RUN composer install --no-interaction --no-dev --optimize-autoloader
+RUN composer install --no-interaction --no-dev --optimize-autoloader \
+    && rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
 
 # Install Node dependencies & build assets
 RUN npm install

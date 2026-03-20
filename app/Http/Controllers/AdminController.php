@@ -125,6 +125,12 @@ class AdminController extends Controller
         // Clear plan limits cache
         \Illuminate\Support\Facades\Cache::forget("plan_limits:{$plan->slug}");
 
+        // Clear usage stats cache for all workspaces on this plan so users see updated limits immediately
+        $affectedWorkspaceIds = \App\Models\Workspace::where('plan', $plan->slug)->pluck('id');
+        foreach ($affectedWorkspaceIds as $wid) {
+            \Illuminate\Support\Facades\Cache::forget("usage_stats:{$wid}");
+        }
+
         return back()->with('success', "Plan {$plan->name} updated successfully.");
     }
 
@@ -153,6 +159,9 @@ class AdminController extends Controller
 
         if ($user->activeWorkspace) {
             $user->activeWorkspace->update(['plan' => $validated['plan']]);
+            
+            // Clear usage stats cache so user sees new plan limits immediately
+            \Illuminate\Support\Facades\Cache::forget("usage_stats:{$user->activeWorkspace->id}");
             
             try {
                 $user->notify(new \App\Notifications\PlanUpgraded($validated['plan']));

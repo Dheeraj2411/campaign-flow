@@ -122,12 +122,12 @@
             <div class="card border-2 transition-all p-8"
                  :class="plan === 'free' ? 'border-admin-primary/40 ring-4 ring-admin-primary/5' : 'border-transparent opacity-60'">
                 <div class="text-center mb-10">
-                    <h3 class="text-lg font-black text-slate-800 uppercase tracking-tighter">Starter</h3>
+                    <h3 class="text-lg font-black text-slate-800 uppercase tracking-tighter">{{ planMap.free?.name ?? 'Starter' }}</h3>
                     <p class="text-5xl font-black text-slate-800 mt-4 mb-2">Free</p>
                     <p class="text-xs font-bold text-slate-400 tracking-widest">Everything to get started</p>
                 </div>
                 <ul class="space-y-4 mb-10">
-                    <li v-for="f in freeFeatures" :key="f" class="flex items-center gap-3 text-sm font-semibold text-slate-600">
+                    <li v-for="f in (planMap.free?.features ?? freeFeaturesFallback)" :key="f" class="flex items-center gap-3 text-sm font-semibold text-slate-600">
                         <span class="material-symbols-outlined text-emerald-500 font-black">done</span>
                         {{ f }}
                     </li>
@@ -144,12 +144,12 @@
                     <span class="px-6 py-2 bg-admin-primary text-white text-[10px] font-black rounded-full tracking-[0.2em]">MOST RECOMMENDED</span>
                 </div>
                 <div class="text-center mb-10">
-                    <h3 class="text-lg font-black text-admin-primary uppercase tracking-tighter">Professional</h3>
-                    <p class="text-5xl font-black text-slate-800 mt-4 mb-2">₹2,900</p>
+                    <h3 class="text-lg font-black text-admin-primary uppercase tracking-tighter">{{ planMap.pro?.name ?? 'Professional' }}</h3>
+                    <p class="text-5xl font-black text-slate-800 mt-4 mb-2">₹{{ formatPrice(planMap.pro?.price) }}</p>
                     <p class="text-xs font-bold text-slate-400 tracking-widest">PER WORKSPACE / MONTH</p>
                 </div>
                 <ul class="space-y-4 mb-10">
-                    <li v-for="f in proFeatures" :key="f" class="flex items-center gap-3 text-sm font-semibold text-slate-600">
+                    <li v-for="f in (planMap.pro?.features ?? proFeaturesFallback)" :key="f" class="flex items-center gap-3 text-sm font-semibold text-slate-600">
                         <span class="material-symbols-outlined text-admin-primary font-black">done</span>
                         {{ f }}
                     </li>
@@ -168,12 +168,12 @@
             <div class="card border-2 transition-all p-8"
                  :class="plan === 'enterprise' ? 'border-amber-400/40 ring-4 ring-amber-400/5' : 'border-transparent'">
                 <div class="text-center mb-10">
-                    <h3 class="text-lg font-black text-amber-600 uppercase tracking-tighter">Enterprise</h3>
-                    <p class="text-5xl font-black text-slate-800 mt-4 mb-2">₹9,900</p>
+                    <h3 class="text-lg font-black text-amber-600 uppercase tracking-tighter">{{ planMap.enterprise?.name ?? 'Enterprise' }}</h3>
+                    <p class="text-5xl font-black text-slate-800 mt-4 mb-2">₹{{ formatPrice(planMap.enterprise?.price) }}</p>
                     <p class="text-xs font-bold text-slate-400 tracking-widest">UNLIMITED SCALE</p>
                 </div>
                 <ul class="space-y-4 mb-10">
-                    <li v-for="f in entFeatures" :key="f" class="flex items-center gap-3 text-sm font-semibold text-slate-600">
+                    <li v-for="f in (planMap.enterprise?.features ?? entFeaturesFallback)" :key="f" class="flex items-center gap-3 text-sm font-semibold text-slate-600">
                         <span class="material-symbols-outlined text-amber-500 font-black">done</span>
                         {{ f }}
                     </li>
@@ -245,6 +245,7 @@ import StatsCard         from '@/Components/StatsCard.vue'
 
 const props = defineProps({
     plan:           { type: String,  default: 'free' },
+    plans:          { type: Array,   default: () => [] },
     usage:          { type: Object,  default: () => ({}) },
     transactions:   { type: Array,   default: () => [] },
     gateways:       { type: Object,  default: () => ({}) },
@@ -257,6 +258,18 @@ const formatDate = (d) => {
     return new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const formatPrice = (pricePaise) => {
+    if (!pricePaise) return '0'
+    return (pricePaise / 100).toLocaleString('en-IN')
+}
+
+// Build a slug -> plan lookup from the backend plans
+const planMap = computed(() => {
+    const map = {}
+    props.plans.forEach(p => { map[p.slug] = p })
+    return map
+})
+
 const handleUpgrade = (selectedPlan) => {
     // Default to Razorpay for now, as it's the primary listed gateway
     router.post(route('billing.checkout'), {
@@ -265,7 +278,8 @@ const handleUpgrade = (selectedPlan) => {
     })
 }
 
-const freeFeatures = ['100 Contacts', '5 Campaigns', '500 Messages/mo', 'Basic Analytics']
-const proFeatures  = ['5,000 Contacts', '50 Campaigns', '50,000 Messages/mo', 'Collaborative Inbox', 'Canned Responses']
-const entFeatures  = ['Unlimited Contacts', 'Unlimited Messages', 'Direct API Access', 'Custom White-label']
+// Fallback values used only if plans table is empty
+const freeFeaturesFallback = ['100 Contacts', '5 Campaigns', '500 Messages/mo', 'Basic Analytics']
+const proFeaturesFallback  = ['5,000 Contacts', '50 Campaigns', '50,000 Messages/mo', 'Collaborative Inbox', 'Canned Responses']
+const entFeaturesFallback  = ['Unlimited Contacts', 'Unlimited Messages', 'Direct API Access', 'Custom White-label']
 </script>
