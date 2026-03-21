@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('campaigns:dispatch-scheduled')->everyMinute();
 Schedule::command('app:backup-db')->daily();
+Schedule::command('billing:reset-counts')->monthly();

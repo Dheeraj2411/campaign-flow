@@ -12,10 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('conversation_messages', function (Blueprint $table) {
-            $table->string('type')->default('text')->after('direction');
-            $table->text('media_url')->nullable()->after('body');
-            $table->text('caption')->nullable()->after('media_url');
-            $table->string('platform_message_id')->nullable()->index()->after('caption');
+            $table->string('type')->default('text');
+            $table->text('media_url')->nullable();
+            $table->text('caption')->nullable();
+            $table->string('platform_message_id')->nullable()->index();
         });
     }
 

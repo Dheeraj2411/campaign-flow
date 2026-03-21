@@ -73,7 +73,7 @@ class SettingsController extends Controller
             }
         }
 
-        $settings = $workspace->settings ?? [];
+        $settings = $workspace->getCachedSettings() ?? [];
 
         // Check if Telegram Bot Token is being changed
         $oldTelegramTokenEnc = $settings['telegram_bot_token'] ?? null;

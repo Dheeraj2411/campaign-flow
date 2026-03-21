@@ -11,7 +11,7 @@ class PublicContactController extends Controller
 {
     public function show(Workspace $workspace)
     {
-        $settings = $workspace->settings ?? [];
+        $settings = $workspace->getCachedSettings() ?? [];
         $botToken = $settings['telegram_bot_token'] ?? null;
         $botUsername = null;
 

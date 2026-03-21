@@ -1,0 +1,424 @@
+CampaignFlow Pro
+
+Product Requirements Document (PRD)
+
+Version 1.0 | Based on Repo Analysis | March 2026
+
+1. Executive Summary
+
+CampaignFlow Pro is a multi-tenant SaaS platform built on Laravel 12 +
+Vue 3 + Inertia that enables businesses to manage WhatsApp and Telegram
+communications at scale. The platform currently delivers campaign
+broadcasting, a real-time inbox, CRM contacts, workflow automation, and
+billing — covering approximately 75–80% of a production-grade messaging
+CRM.
+
+This PRD defines the new features and improvements required to reach a
+competitive, differentiated product. Every item is scoped to be additive
+— no existing controllers or services will be broken. The database is
+migrated from MySQL to PostgreSQL 16+, unlocking jsonb GIN indexes for
+fast tag filtering and timezone-aware timestamps throughout.
+
+2. Current State Assessment
+
+2.1 What Already Exists
+
+  -------------------- ---------------------------------- ---------------
+  Module               Current Implementation             Status
+
+  Multi-Tenancy        Workspace-based with TenantScope   ✅ Solid
+                       trait, SetTenantMiddleware         
+
+  Campaign Engine      DispatchCampaignJob →              ✅ Functional
+                       CampaignSendChunkJob (100/chunk) → 
+                       SendMessageJob                     
+
+  Inbox /              InboxController with reply,        ⚠️ Needs polish
+  Conversations        assign, status, notes; Reverb      
+                       broadcast                          
+
+  CRM Contacts         Tags (jsonb array on contacts),    ⚠️ Tags not
+                       custom_attributes, CSV import,     normalized
+                       segments                           
+
+  Workflow Automation  AutomationWorkflowService: trigger ⚠️ Limited
+                       → conditions → actions             actions
+                       (send_campaign_message,            
+                       tag_contact)                       
+
+  WhatsApp Service     sendMessage, sendMedia,            ✅ Solid
+                       sendTemplate, verifyToken with     
+                       cache                              
+
+  Telegram Service     Separate TelegramService, webhook  ✅ Functional
+                       controller                         
+
+  Analytics            CampaignAnalyticsService:          ⚠️ No funnel /
+                       sent/delivered/failed counts       read tracking
+
+  Billing / Plans      PaymentController, Plan model,     ✅ Present
+                       UsageService quotas                
+
+  Real-Time            Laravel Reverb + Echo;             ✅ Present
+                       MessageReceived,                   
+                       MessageStatusUpdated events        
+
+  Queue System         Horizon, single campaign-send      ⚠️ No priority
+                       queue, batch dispatch              queues
+
+  Frontend             Vue 3 + Inertia, Pinia;            ⚠️ Chat UX
+                       Inbox/Index.vue, Campaigns/*,      needs rework
+                       Workflows/Index.vue                
+  -------------------- ---------------------------------- ---------------
+
+2.2 Key Gaps vs. Market
+
+  ------------------------- --------------------------------- ------------
+  Gap                       Business Impact                   Priority
+
+  No read/clicked tracking  Analytics incomplete; can't       P0
+  in message funnel         measure campaign ROI              
+
+  Tags stored as jsonb blob Can't filter efficiently at scale P0
+  on contacts, not          via @> operator alone; no tag     
+  normalized                management UI                     
+
+  Database is MySQL; must   jsonb GIN indexes, timestampTz,   P0
+  migrate to PostgreSQL 16+ and @> queries required for scale 
+
+  Single queue for all      WhatsApp API rate limits will     P0
+  jobs; no rate limiting    cause bulk failures at scale      
+
+  Chat inbox lacks virtual  Performance degrades with > 200   P1
+  scrolling; no typing      messages; poor UX                 
+  indicator                                                   
+
+  Automation: only 2 action Cannot assign, delay, or send     P1
+  types (send message, tag) follow-ups                        
+
+  No contact activity       Support agents cannot see history P1
+  timeline                  in one place                      
+
+  No retry/failure logs on  Silent failures with no           P1
+  campaign sends            visibility or recovery path       
+
+  Segment filter not        contact_segment_id stored but     P0 — Bug
+  applied in                never used in dispatch            
+  DispatchCampaignJob                                         
+
+  No message read (blue     Status stays 'delivered'; no read P1
+  tick) update flow         confirmation to DB                
+  ------------------------- --------------------------------- ------------
+
+3. Product Goals & Success Metrics
+
+3.1 Goals
+
+-   Deliver a WhatsApp-style chat inbox with real-time performance that
+    feels native
+
+-   Fix the segment dispatch bug and add full retry/rate-limit
+    infrastructure to campaigns
+
+-   Migrate database from MySQL to PostgreSQL 16+; convert json columns
+    to jsonb with GIN indexes
+
+-   Normalize contact tags into a dedicated table for scalable filtering
+
+-   Extend the automation engine with delay, assign, and HTTP webhook
+    actions
+
+-   Instrument the full message funnel (sent → delivered → read →
+    clicked) for analytics
+
+3.2 Target Users
+
+  ---------------- ----------------------------- -------------------------
+  Persona          Primary Need                  Key Feature
+
+  SMB Owner        Broadcast promotions to       Campaigns + Templates
+                   WhatsApp contacts             
+
+  Support Agent    Reply to inbound messages     Chat Inbox + Canned
+                   quickly                       Responses
+
+  Agency Manager   Manage multiple client        Multi-tenancy + Analytics
+                   workspaces                    
+
+  Sales Team Lead  Automate follow-ups on leads  Workflow Automation
+  ---------------- ----------------------------- -------------------------
+
+3.3 Success Metrics
+
+  ----------------------- ---------------- ------------------------------
+  Metric                  Target           Measurement
+
+  Campaign delivery rate  > 95%            delivered / sent in MessageLog
+
+  Inbox load time (first  < 1.5 s          Frontend performance trace
+  paint)                                   
+
+  Automation execution    > 98%            WorkflowExecution status
+  success rate                             
+
+  Message funnel read     Tracked          message_status_history table
+  rate                    accurately       
+
+  Queue failure rate      < 0.5%           Horizon failed job count
+  ----------------------- ---------------- ------------------------------
+
+4. Feature Requirements
+
+FR-01: WhatsApp-Style Chat Inbox
+
+4.1.1 Objective
+
+Rebuild the Inbox/Index.vue into a full two-panel layout that mirrors
+WhatsApp Web in feel and performance, backed by the existing
+InboxController (no backend rewrite needed).
+
+4.1.2 Functional Requirements
+
+-   Left panel: paginated conversation list with unread badge, last
+    message preview, relative timestamp, platform icon, assigned-agent
+    avatar
+
+-   Right panel: full message thread with sent (right-aligned) and
+    received (left-aligned) bubbles
+
+-   Message status icons per bubble: clock (pending), single tick
+    (sent), double tick (delivered), blue double tick (read)
+
+-   Input bar: text field, send button, template picker button,
+    attachment button (phase 2)
+
+-   Conversation header: contact name, platform, status badge, assign
+    dropdown, open/close/pending toggle
+
+-   Real-time updates via existing Reverb Echo subscription on
+    private-chat.{conversation_id}
+
+-   Infinite-scroll (load older messages) using existing show()
+    pagination (before param)
+
+-   Virtual scroll list for conversations panel when count > 100
+
+-   Search conversations (client-side filter on loaded set; server
+    search in phase 2)
+
+-   Filter tabs: All / Unread / Mine / Pending
+
+4.1.3 Non-Functional Requirements
+
+-   Initial inbox load < 1.5 s on 3G
+
+-   Message send optimistic UI (show bubble immediately, confirm on API
+    response)
+
+-   Graceful degradation when Reverb is offline (polling every 5 s)
+
+FR-02: Normalized Contact Tags
+
+4.2.1 Current Problem
+
+Tags are stored as a jsonb array on the contacts.tags column in
+PostgreSQL. While jsonb supports GIN indexes and the @> containment
+operator, there is no tag management UI and queries at scale still
+benefit from a normalized pivot table.
+
+4.2.2 Requirements
+
+-   New tags table: id, workspace_id, name, color, created_at
+
+-   New contact_tag pivot: contact_id, tag_id (replaces jsonb array for
+    new tags)
+
+-   Migration: read existing jsonb tags array, insert rows into tags +
+    contact_tag, keep contacts.tags column as read-only legacy fallback
+
+-   GIN index on contacts.tags retained for backward-compatible queries
+    during transition
+
+-   Tag management UI: create, rename, color-pick, delete (merge
+    contacts to another tag before delete)
+
+-   Contact list filter by tag (uses pivot with btree index — faster
+    than GIN for exact match)
+
+-   Campaign audience: tag-based targeting uses new pivot; segment-based
+    uses ContactSegment
+
+FR-03: Campaign Engine — Rate Limiting & Retry
+
+4.3.1 Bug Fix (P0)
+
+DispatchCampaignJob currently ignores contact_segment_id even though
+CampaignController stores it. The query in handle() must apply segment
+conditions when contact_segment_id is set.
+
+4.3.2 Rate Limiting
+
+-   Introduce throttle per workspace: default 80 messages/min
+    (configurable in workspace settings)
+
+-   Use Redis token-bucket via Laravel RateLimiter in SendMessageJob
+
+-   Throttled jobs release back to queue with a delay (not fail)
+
+4.3.3 Retry Logic
+
+-   SendMessageJob: max 3 attempts, exponential backoff (10 s, 60 s, 300
+    s)
+
+-   On final failure: update MessageLog status = 'failed', store error
+    message in failure_reason column (new column)
+
+-   Campaign detail page shows failure_reason per contact row
+
+4.3.4 Queue Priority
+
+-   Separate queues: high (inbox replies), medium (campaign chunks), low
+    (analytics)
+
+-   Horizon supervisor config updated for each queue
+
+FR-04: Full Message Funnel Analytics
+
+4.4.1 Objective
+
+Track every status transition so the analytics dashboard can show a true
+funnel: Sent → Delivered → Read → Clicked.
+
+4.4.2 Requirements
+
+-   New message_status_history table: id, message_log_id, status,
+    occurred_at
+
+-   WhatsAppWebhookController already receives status updates — extend
+    to write to message_status_history
+
+-   CampaignAnalyticsService updated to aggregate funnel from history
+    table
+
+-   Analytics page: funnel chart (bar/funnel), timeline by day, top 10
+    campaigns table
+
+-   Per-campaign show page: funnel breakdown + export to CSV
+
+FR-05: Automation Engine Expansion
+
+4.5.1 Current State
+
+AutomationWorkflowService supports 2 action types
+(send_campaign_message, tag_contact) and 3 condition operators (equals,
+contains, not_equals). The trigger model stores trigger name as a
+string.
+
+4.5.2 New Action Types
+
+  --------------------- ----------------------- ---------------------------------
+  Action Type           Description             Implementation
+
+  assign_conversation   Assign to a user_id     Update Conversation.assigned_to
+
+  change_status         Set conversation        Update Conversation.status
+                        open/pending/closed     
+
+  delay                 Wait N minutes before   Dispatch chained job with delay()
+                        next action             
+
+  send_template         Send a Meta-approved    WhatsAppService::sendTemplate()
+                        template directly       
+
+  webhook               POST payload to         Http::post() in action handler
+                        external URL            
+  --------------------- ----------------------- ---------------------------------
+
+4.5.3 New Trigger Types
+
+-   conversation_closed — fires when InboxController::updateStatus sets
+    closed
+
+-   tag_added — fires after AutomationWorkflowService::tagContact
+
+-   campaign_replied — fires when an inbound message arrives within 24 h
+    of a campaign send
+
+FR-06: Contact Activity Timeline
+
+A new tab on the contact detail page showing a reverse-chronological
+feed of: messages sent/received, tags applied, workflow executions,
+campaign membership, and notes. Sourced from existing tables with a
+unified query. No new table required in phase 1.
+
+5. Out of Scope (Phase 1)
+
+-   Microservices / service decomposition
+
+-   Email channel (Resend integration)
+
+-   AI-powered reply suggestions
+
+-   File/media upload directly from inbox (media_url must be a public
+    link)
+
+-   Mobile app
+
+6. Dependencies & Risks
+
+  ------------------------ ------------ ---------------------------------
+  Risk                     Likelihood   Mitigation
+
+  Meta WhatsApp API rate   High         Token-bucket rate limiter in
+  limits (80 msg/min                    SendMessageJob
+  default)                              
+
+  MySQL → PostgreSQL       High         All whereJsonContains() replaced
+  migration breaks                      with @> operator; ->after()
+  existing queries                      removed from migrations; full
+                                        query audit in TRD Section 2.8
+
+  Reverb downtime breaks   Medium       Polling fallback every 5 s
+  real-time inbox                       already stubbed in
+                                        InboxController
+
+  Tag migration causes     Medium       Migration reads jsonb array,
+  duplicate entries                     deduplicates, then inserts to
+                                        pivot
+
+  Virtual scroll library   Low          Use tanstack-virtual (Vue
+  compatibility with                    wrapper); tested with Inertia SSR
+  Inertia                               
+  ------------------------ ------------ ---------------------------------
+
+7. Acceptance Criteria Summary
+
+  -------------------- --------------------------------------------------
+  Feature              Acceptance Criteria
+
+  Chat Inbox           Two-panel layout renders; messages load in < 1.5
+                       s; real-time update arrives within 1 s of send;
+                       optimistic UI shows bubble immediately
+
+  Tag Normalization    New tags created via UI appear in tags table;
+                       existing jsonb tags migrated to pivot; campaign
+                       filter by tag returns correct contacts via pivot
+                       query
+
+  PostgreSQL Migration All whereJsonContains() replaced with @> operator;
+                       all ->after() removed from migrations;
+                       DB_CONNECTION=pgsql; all timestamps use
+                       timestampTz
+
+  Campaign Rate        Sending 500 messages respects 80/min throttle;
+  Limiting             failed sends show failure_reason; segment filter
+                       applied correctly
+
+  Message Funnel       Webhook status update writes to
+                       message_status_history; analytics page shows
+                       funnel chart with 4 stages
+
+  Automation Expansion New action types execute without error in
+                       WorkflowExecution log; delay action dispatches
+                       with correct delay
+  -------------------- --------------------------------------------------

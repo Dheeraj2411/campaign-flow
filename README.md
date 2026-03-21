@@ -1,6 +1,6 @@
-# CampaignFlow 🚀
+# PingOS 🚀
 
-**CampaignFlow** is a powerful multi-tenant communication platform built with the latest Laravel stack. It enables businesses to manage WhatsApp and Telegram campaigns, interact with customers in real-time, and automate messaging workflows efficiently.
+**PingOS** is a powerful multi-tenant communication platform built with the latest Laravel stack. It enables businesses to manage WhatsApp and Telegram campaigns, interact with customers in real-time, and automate messaging workflows efficiently.
 
 ---
 
@@ -45,8 +45,8 @@
 
 1.  **Clone the Repository**:
     ```bash
-    git clone https://github.com/your-repo/campaign-flow.git
-    cd campaign-flow
+    git clone https://github.com/your-repo/pingos.git
+    cd pingos
     ```
 
 2.  **Install Dependencies**:

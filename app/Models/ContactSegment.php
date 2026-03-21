@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class ContactSegment extends Model
 {
+    protected static function booted()
+    {
+        static::addGlobalScope(new \App\Scopes\TenantScope);
+    }
     use HasFactory;
 
     protected $fillable = [
@@ -30,9 +34,13 @@ class ContactSegment extends Model
             $operator = $condition['operator'];
             $value    = $condition['value'];
 
-            if (!in_array($operator, ['=', '!=', 'like', 'not like', 'in', 'not in'])) {
+            if (!in_array($operator, ['=', '!=', 'like', 'not like', 'ilike', 'not ilike', 'in', 'not in'])) {
                 continue;
             }
+
+            // PostgreSQL: use case-insensitive ILIKE
+            if ($operator === 'like') $operator = 'ilike';
+            if ($operator === 'not like') $operator = 'not ilike';
 
             if (in_array($operator, ['in', 'not in']) && is_array($value)) {
                 $query->whereIn($field, $value, $operator === 'not in');

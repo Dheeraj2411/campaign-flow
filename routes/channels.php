@@ -20,3 +20,9 @@ Broadcast::channel('workspace.{workspaceId}', function ($user, $workspaceId) {
     $isActive = (int) $user->active_workspace_id === (int) $workspaceId;
     return $isActive || $user->workspaces()->where('workspaces.id', $workspaceId)->exists();
 });
+
+Broadcast::channel('chat.{workspaceId}', function ($user, $workspaceId) {
+    if (!$user) return false;
+    if (method_exists($user, 'isPlatformAdmin') && $user->isPlatformAdmin()) return true;
+    return (int) $user->active_workspace_id === (int) $workspaceId || $user->workspaces->contains($workspaceId);
+});

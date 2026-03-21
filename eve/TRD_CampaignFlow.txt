@@ -1,0 +1,700 @@
+CampaignFlow Pro
+
+Technical Requirements Document (TRD)
+
+Version 1.0 | Repo: campaign-flow-main | March 2026
+
+1. Current Technical Stack
+
+  --------------- ------------------------ ------------------------------
+  Layer           Technology               Version / Notes
+
+  Backend         Laravel                  12.x — already in use
+  Framework                                
+
+  Frontend        Vue 3 + Inertia.js       Pinia state management
+  Framework                                
+
+  Real-Time       Laravel Reverb + Echo    private channels per
+                                           conversation & workspace
+
+  Queue / Workers Laravel Horizon + Redis  predis/predis ^3.4
+
+  Database        PostgreSQL 16+           Eloquent ORM; jsonb columns
+                                           for tags/attributes; pgsql
+                                           driver
+
+  Search          Laravel Scout            ^10.0, driver configurable
+
+  Auth            Laravel Sanctum + Breeze session-based for web
+
+  Integration A   Meta WhatsApp Cloud API  v22.0, Graph API
+
+  Integration B   Telegram Bot API         separate TelegramService
+
+  Billing         Custom payment layer     PaymentController + Plan model
+  --------------- ------------------------ ------------------------------
+
+2. Database Changes (PostgreSQL — Safe Additions Only)
+
+All changes below are purely additive. No existing column or table will
+be dropped or renamed. The project is migrated from MySQL to PostgreSQL
+16+. Key differences applied throughout: json columns become jsonb,
+whereJsonContains uses the @> operator, and after() is replaced with
+PostgreSQL-compatible column ordering (Postgres does not support AFTER
+in ALTER TABLE).
+
+2.0 .env & config/database.php — Switch to PostgreSQL
+
+// .env
+
+DB_CONNECTION=pgsql
+
+DB_HOST=127.0.0.1
+
+DB_PORT=5432
+
+DB_DATABASE=campaignflow
+
+DB_USERNAME=campaignflow
+
+DB_PASSWORD=secret
+
+// config/database.php — default connection
+
+'default' => env('DB_CONNECTION', 'pgsql'),
+
+2.1 Existing contacts.tags — Change to jsonb
+
+// New migration: convert existing json column to jsonb
+
+Schema::table('contacts', function (Blueprint \$table) {
+
+// Postgres: alter column type to jsonb for GIN index support
+
+DB::statement("ALTER TABLE contacts ALTER COLUMN tags TYPE jsonb USING
+tags::jsonb");
+
+DB::statement("ALTER TABLE contacts ALTER COLUMN custom_attributes TYPE
+jsonb USING custom_attributes::jsonb");
+
+// GIN index for fast @> containment queries
+
+DB::statement("CREATE INDEX IF NOT EXISTS contacts_tags_gin ON contacts
+USING GIN (tags)");
+
+});
+
+2.2 Migration: tags table (normalize contact tags)
+
+Schema::create('tags', function (Blueprint \$table) {
+
+\$table->id();
+
+\$table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+
+\$table->string('name');
+
+\$table->string('color')->default('#3B82F6'); // Tailwind blue-500
+
+\$table->timestamps();
+
+\$table->unique(['workspace_id', 'name']);
+
+});
+
+2.3 Migration: contact_tag pivot
+
+Schema::create('contact_tag', function (Blueprint \$table) {
+
+\$table->foreignId('contact_id')->constrained()->cascadeOnDelete();
+
+\$table->foreignId('tag_id')->constrained()->cascadeOnDelete();
+
+\$table->primary(['contact_id', 'tag_id']);
+
+// Partial index for fast tag lookups
+
+DB::statement('CREATE INDEX contact_tag_tag_id_idx ON contact_tag
+(tag_id)');
+
+});
+
+2.4 Migration: message_status_history
+
+Schema::create('message_status_history', function (Blueprint \$table) {
+
+\$table->id();
+
+\$table->foreignId('message_log_id')->constrained()->cascadeOnDelete();
+
+\$table->string('status'); // sent|delivered|read|failed|clicked
+
+\$table->string('raw_status')->nullable(); // Meta raw status string
+
+\$table->timestampTz('occurred_at'); // timestampTz for Postgres
+timezone awareness
+
+\$table->index(['message_log_id', 'occurred_at']);
+
+});
+
+2.5 Migration: add failure_reason to message_logs
+
+// Postgres does NOT support ->after() — columns append to end
+
+Schema::table('message_logs', function (Blueprint \$table) {
+
+\$table->text('failure_reason')->nullable();
+
+\$table->smallInteger('attempt_count')->default(0);
+
+});
+
+2.6 Migration: add rate_limit to workspaces
+
+Schema::table('workspaces', function (Blueprint \$table) {
+
+// messages per minute throttle; null = use system default (80)
+
+\$table->smallInteger('msg_per_minute')->nullable();
+
+});
+
+2.7 PostgreSQL-Specific Query Changes
+
+  ------------------------- --------------------------- ---------------------------
+  Location                  MySQL (old)                 PostgreSQL (new)
+
+  Contact::scopeFilter()    whereJsonContains('tags',   whereRaw("tags @>
+                            \$tag)                      ?::jsonb",
+                                                        [json_encode([\$tag])])
+
+  Contact::scopeSegment()   whereJsonContains(...)      whereRaw("column @>
+                                                        ?::jsonb", [...])
+
+  CampaignController        whereJsonContains('tags',   whereRaw("tags @>
+                            \$id)                       ?::jsonb",
+                                                        [json_encode([\$id])])
+
+  DispatchCampaignJob       whereJsonContains('tags',   whereRaw("tags @>
+                            ...)                        ?::jsonb", [...])
+
+  All migrations            ->after('column')           Remove ->after() — not
+                                                        supported in Postgres
+
+  All migrations            unsignedTinyInteger()       smallInteger() — Postgres
+                                                        has no unsigned ints
+
+  All migrations            unsignedSmallInteger()      smallInteger()
+
+  Conversations.tags        json column                 jsonb column + GIN index
+  ------------------------- --------------------------- ---------------------------
+
+2.8 Existing File Changes — Complete Query & Migration Fixes
+
+Every file in the existing codebase that uses MySQL-specific syntax must
+be updated. All changes listed below are in-place edits — no file is
+deleted or replaced.
+
+app/Models/Contact.php — scopeFilter()
+
+// BEFORE (MySQL)
+
+\$query->whereJsonContains('tags', \$tag);
+
+// AFTER (PostgreSQL)
+
+\$query->whereRaw("tags @> ?::jsonb", [json_encode([\$tag])]);
+
+app/Jobs/DispatchCampaignJob.php — contact query
+
+// BEFORE (MySQL)
+
+\$query->whereJsonContains('tags', \$campaign->contact_group_id);
+
+// AFTER (PostgreSQL)
+
+\$query->whereRaw("tags @> ?::jsonb",
+[json_encode([\$campaign->contact_group_id])]);
+
+app/Http/Controllers/CampaignController.php — tag filter
+
+// BEFORE (MySQL)
+
+\$query->whereJsonContains('tags', \$data['contact_group_id']);
+
+// also:
+
+Contact::where(...)->whereJsonContains('tags', ...) // in create()
+
+// AFTER (PostgreSQL)
+
+\$query->whereRaw("tags @> ?::jsonb",
+[json_encode([\$data['contact_group_id']])]);
+
+// also in create() tag pluck — no query change needed (pluck + flatten
+still works)
+
+app/Http/Controllers/Api/WhatsAppWebhookController.php — workspace
+lookup
+
+// BEFORE (MySQL)
+
+Workspace::whereJsonContains('settings->whatsapp_display_phone_number',
+\$displayPhoneNumber)
+
+->orWhereJsonContains('settings->whatsapp_phone_number_id',
+\$phoneNumberId ?? '')
+
+->first();
+
+// AFTER (PostgreSQL) — settings is a jsonb column
+
+Workspace::whereRaw("settings->>'whatsapp_display_phone_number' = ?",
+[\$displayPhoneNumber])
+
+->orWhereRaw("settings->>'whatsapp_phone_number_id' = ?",
+[\$phoneNumberId ?? ''])
+
+->first();
+
+database/migrations — Remove all ->after() calls
+
+PostgreSQL does not support ALTER TABLE ... ADD COLUMN ... AFTER. Remove
+->after() from these migration files:
+
+  ----------------------------------------------------------------- -----------------------------------
+  Migration File                                                    Lines with ->after() to remove
+
+  2026_03_16_171956_add_media_fields_to_conversation_messages.php   ->after('direction'),
+                                                                    ->after('body'),
+                                                                    ->after('media_url'),
+                                                                    ->after('caption')
+
+  2026_03_14_074944_add_is_active_to_users_table.php                ->after('remember_token')
+
+  2026_03_15_175613_add_telegram_chat_id_to_contacts_table.php      ->after('telegram_username')
+
+  2026_03_16_172456_add_platform_message_id_to_message_logs.php     ->after('error_message')
+
+  2026_03_16_171059_add_meta_fields_to_message_templates.php        ->after('platform'),
+                                                                    ->after('language'),
+                                                                    ->after('category'),
+                                                                    ->after('status'),
+                                                                    ->after('meta_template_id'),
+                                                                    ->after('content_structure')
+
+  2026_03_16_182149_add_profile_permission_to_users_table.php       ->after('is_active')
+  ----------------------------------------------------------------- -----------------------------------
+
+database/migrations — Change json to jsonb
+
+All json columns should be jsonb in PostgreSQL for indexing and operator
+support:
+
+  ------------------------------------------------------------- ---------------------------------
+  Migration File                                                Column(s) to change to jsonb
+
+  2026_03_11_090009_create_contacts_table.php                   tags, custom_attributes
+
+  2026_03_11_154131_create_conversations_table.php              tags
+
+  2026_03_19_000002_create_contact_segments_and_workflows.php   conditions (contact_segments),
+                                                                conditions + actions (workflows),
+                                                                data (workflow_executions)
+
+  2026_03_16_171059_add_meta_fields_to_message_templates.php    content_structure
+
+  2026_03_11_090008_create_workspaces_table.php                 settings (if json)
+  ------------------------------------------------------------- ---------------------------------
+
+database/migrations — Change timestamp to timestampTz
+
+Use timestampTz() throughout for proper timezone awareness in
+PostgreSQL:
+
+  --------------------------------------------------------------------- ---------------------------------
+  Migration File                                                        Columns to change
+
+  2026_03_11_154131_create_conversations_table.php                      last_message_at
+
+  2026_03_11_154132_create_conversation_messages_table.php              sent_at
+
+  2026_03_16_175433_enhance_conversations_table_for_collaboration.php   last_incoming_at,
+                                                                        last_outgoing_at
+
+  2026_03_14_074937_create_payment_transactions_table.php               activated_at
+
+  2026_03_16_164410_create_workspace_invitations_table.php              accepted_at, expires_at
+
+  0001_01_01_000000_create_users_table.php                              email_verified_at, created_at
+
+  2026_03_17_080023_add_sent_at_to_conversation_messages_table.php      sent_at
+  --------------------------------------------------------------------- ---------------------------------
+
+database/migrations/0001_01_01_000002_create_jobs_table.php — unsigned
+types
+
+// BEFORE
+
+\$table->unsignedTinyInteger('attempts');
+
+// AFTER (PostgreSQL has no unsigned int types)
+
+\$table->smallInteger('attempts');
+
+app/Console/Commands/BackupDatabase.php — already has pgsql check
+
+This file already checks env('DB_CONNECTION') !== 'pgsql' on line 24 —
+no change needed. Ensure the backup command uses pg_dump instead of
+mysqldump when DB_CONNECTION=pgsql.
+
+3. Backend Technical Requirements
+
+3.1 Model Changes
+
+  ---------------- ----------------------- ------------------------------
+  Model            Change                  Detail
+
+  Contact          Add belongsToMany tags  Contact::tags() →
+                                           belongsToMany(Tag::class,
+                                           'contact_tag')
+
+  Tag (new)        Create model            workspace_id, name, color;
+                                           scopeForWorkspace()
+
+  MessageLog       Add failure_reason,     New columns via migration 2.4
+                   attempt_count           
+
+  Workspace        Add msg_per_minute      Used by rate limiter in
+                                           SendMessageJob
+
+  Workflow         No change               Existing structure supports
+                                           new action types via JSON
+                                           actions array
+  ---------------- ----------------------- ------------------------------
+
+3.2 SendMessageJob — Rate Limiting & Retry
+
+File: app/Jobs/SendMessageJob.php — extend, do not rewrite.
+
+// Add to handle() — before API call
+
+\$limit = \$workspace->msg_per_minute ?? 80;
+
+RateLimiter::attempt(
+
+'whatsapp-send:'.(\$workspace->id),
+
+\$limit,
+
+fn() => null, // token bucket attempt
+
+60 // decay seconds
+
+) ?: \$this->release(60); // re-queue after 1 min if throttled
+
+// Retry configuration (add to class)
+
+public int \$tries = 3;
+
+public array \$backoff = [10, 60, 300];
+
+// On failed() — called after all attempts exhausted
+
+public function failed(Throwable \$e): void {
+
+MessageLog::find(\$this->logId)?->update([
+
+'status' => 'failed',
+
+'failure_reason' => \$e->getMessage(),
+
+]);
+
+}
+
+3.3 DispatchCampaignJob — Segment Bug Fix
+
+The current handle() method ignores contact_segment_id. Fix:
+
+// Replace query block in handle() with:
+
+\$query = Contact::query(); // TenantScope applies workspace
+
+if (!empty(\$campaign->contact_segment_id)) {
+
+\$segment = ContactSegment::find(\$campaign->contact_segment_id);
+
+if (\$segment) \$query->segment(\$segment); // uses existing
+scopeSegment()
+
+} elseif (\$campaign->contact_group_id && \$campaign->contact_group_id
+!== 'all') {
+
+\$query->whereJsonContains('tags', \$campaign->contact_group_id);
+
+}
+
+3.4 Horizon Queue Configuration
+
+  --------------- ------------- --------------- ------------------------------
+  Queue Name      Priority      Workers         Use Case
+
+  high            1 (highest)   3 processes     Inbox replies
+                                                (SendConversationMessageJob)
+
+  medium          2             5 processes     Campaign chunks
+                                                (CampaignSendChunkJob)
+
+  low             3             2 processes     Analytics events, exports
+
+  campaign-send   2             merged into     SendMessageJob — rename to
+                                medium          'medium'
+  --------------- ------------- --------------- ------------------------------
+
+Update config/horizon.php environments.production.supervisor-1.queue to:
+'high,medium,low'
+
+3.5 AutomationWorkflowService — New Action Handlers
+
+Add new case blocks to performAction(). Existing cases are untouched.
+
+case 'assign_conversation':
+
+Conversation::find(\$payload['conversation_id'])
+
+?->update(['assigned_to' => \$action['user_id']]);
+
+break;
+
+case 'change_status':
+
+Conversation::find(\$payload['conversation_id'])
+
+?->update(['status' => \$action['status']]);
+
+break;
+
+case 'delay':
+
+// Schedule resumption of next action in a separate chained job
+
+\$delay = (int) (\$action['minutes'] ?? 5);
+
+ResumeWorkflowJob::dispatch(\$workflow->id, \$payload, \$actionIndex +
+1)
+
+->delay(now()->addMinutes(\$delay));
+
+return; // stop current chain here
+
+case 'send_template':
+
+\$ws = new WhatsAppService(\$workspace);
+
+\$ws->sendTemplate(
+
+\$contact->phone,
+
+\$action['template_name'],
+
+\$action['language'] ?? 'en_US'
+
+);
+
+break;
+
+case 'webhook':
+
+Http::timeout(10)->post(\$action['url'], \$payload);
+
+break;
+
+3.6 WhatsApp Webhook — Funnel Tracking
+
+Extend WhatsAppWebhookController@handleStatus (or equivalent handler) to
+write to message_status_history:
+
+\$log = MessageLog::where('platform_message_id',
+\$waMessageId)->first();
+
+if (\$log) {
+
+\$log->update(['status' => \$status]);
+
+MessageStatusHistory::create([
+
+'message_log_id' => \$log->id,
+
+'status' => \$status,
+
+'raw_status' => \$rawStatus,
+
+'occurred_at' => now(),
+
+]);
+
+}
+
+4. Frontend Technical Requirements
+
+4.1 New Vue Components Required
+
+  --------------------------------------- ----------------------- -----------------------
+  Component File                          Purpose                 Key Dependencies
+
+  Pages/Inbox/Index.vue                   Replace existing —      Pinia useInboxStore,
+                                          two-panel WhatsApp      Echo
+                                          layout                  
+
+  Components/Inbox/ConversationList.vue   Left panel with virtual @tanstack/vue-virtual
+                                          scroll                  
+
+  Components/Inbox/ConversationItem.vue   Single row in           BaseBadge (existing)
+                                          conversation list       
+
+  Components/Inbox/ChatWindow.vue         Right panel message     Pinia conversation
+                                          thread                  state
+
+  Components/Inbox/MessageBubble.vue      Individual message      Props: direction,
+                                          bubble                  status, type
+
+  Components/Inbox/MessageInput.vue       Send bar with template  CannedResponses,
+                                          picker                  TemplateModal
+
+  Components/Tags/TagManager.vue          Create / rename /       New API endpoints
+                                          delete tags             
+
+  Components/Analytics/FunnelChart.vue    Campaign funnel         Chart.js or ApexCharts
+                                          visualization           
+  --------------------------------------- ----------------------- -----------------------
+
+4.2 Pinia Store: useInboxStore
+
+// stores/inbox.js
+
+export const useInboxStore = defineStore('inbox', {
+
+state: () => ({
+
+conversations: [],
+
+activeConversationId: null,
+
+messages: {}, // keyed by conversation_id
+
+loading: false,
+
+hasMore: {}, // keyed by conversation_id
+
+}),
+
+actions: {
+
+async loadConversations(filters) { /* GET /inbox */ },
+
+async loadMessages(convId, before = null) { /* GET /inbox/{id} */ },
+
+pushMessage(convId, message) { /* optimistic + real-time append */ },
+
+updateMessageStatus(convId, msgId, status) { /* ✓✓ blue ticks */ },
+
+}
+
+});
+
+4.3 Real-Time Subscription
+
+// In ChatWindow.vue onMounted()
+
+Echo.private(`chat.\${conversationId}`)
+
+.listen('MessageReceived', (e) => {
+
+store.pushMessage(conversationId, e.message);
+
+})
+
+.listen('MessageStatusUpdated', (e) => {
+
+store.updateMessageStatus(conversationId, e.messageId, e.status);
+
+});
+
+// Polling fallback (if Echo disconnects)
+
+const poll = setInterval(() => {
+
+if (!Echo.connector.socket?.connected)
+store.loadMessages(conversationId);
+
+}, 5000);
+
+onUnmounted(() => clearInterval(poll));
+
+4.4 Package Additions
+
+  ----------------------- --------------------------- -----------------------
+  Package                 Purpose                     Install Command
+
+  @tanstack/vue-virtual   Virtual scroll for          npm install
+                          conversation list           @tanstack/vue-virtual
+
+  apexcharts /            Funnel / bar charts on      npm install apexcharts
+  vue3-apexcharts         analytics page              vue3-apexcharts
+
+  @vueuse/core            useIntersectionObserver for npm install
+                          infinite scroll             @vueuse/core
+  ----------------------- --------------------------- -----------------------
+
+5. New API Endpoints
+
+  -------- ------------------------------ ------------------------------------- ------------------
+  Method   Route                          Controller@Action                     Notes
+
+  GET      /tags                          TagController@index                   List workspace
+                                                                                tags
+
+  POST     /tags                          TagController@store                   Create tag
+
+  PUT      /tags/{tag}                    TagController@update                  Rename / recolor
+
+  DELETE   /tags/{tag}                    TagController@destroy                 Merge then delete
+
+  POST     /contacts/{contact}/tags       ContactController@syncTags            Attach tags to
+                                                                                contact
+
+  GET      /campaigns/{campaign}/funnel   AnalyticsController@campaignFunnel    Returns funnel
+                                                                                counts
+
+  GET      /analytics/funnel              AnalyticsController@workspaceFunnel   Workspace-wide
+                                                                                funnel
+
+  GET      /contacts/{contact}/timeline   ContactController@timeline            Activity feed
+  -------- ------------------------------ ------------------------------------- ------------------
+
+6. Non-Functional Requirements
+
+  -------------------- -------------------- -----------------------------
+  Requirement          Target               Implementation
+
+  WhatsApp send        80 msg/min per       Redis RateLimiter token
+  throughput           workspace (default)  bucket
+
+  Inbox first paint    < 1.5 s on 4G        Virtual scroll + paginate(50)
+                                            on server
+
+  Real-time latency    < 1 s end-to-end     Reverb WebSocket; no polling
+                                            in normal operation
+
+  Queue job retry      3 attempts with      \$tries and \$backoff on
+                       backoff 10s/60s/300s SendMessageJob
+
+  DB query performance Tag filter < 50 ms   Index on contact_tag(tag_id)
+                       on 100k contacts     
+
+  Tenant data          Zero cross-workspace TenantScope + workspace_id
+  isolation            data leak            foreign keys
+  -------------------- -------------------- -----------------------------

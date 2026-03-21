@@ -83,7 +83,7 @@ class CampaignController extends Controller
                 $query = $query->segment($segment);
             }
         } else if ($data['contact_group_id'] !== 'all') {
-            $query->whereJsonContains('tags', $data['contact_group_id']);
+            $query->whereRaw("tags @> ?::jsonb", [json_encode([$data['contact_group_id']])]);
         }
 
         $contactCount = $query->count();

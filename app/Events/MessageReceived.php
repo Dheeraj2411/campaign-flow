@@ -13,17 +13,38 @@ use Illuminate\Queue\SerializesModels;
 /**
  * Fired when a new message arrives (inbound from customer, or outbound from campaign).
  * Uses ShouldBroadcastNow so it fires immediately (no queue needed).
- * This prevents queue failures when Reverb server is not running.
+ *
+ * Channel:  private-chat.{workspaceId}
+ * Event:    .message.received
  */
 class MessageReceived implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public ConversationMessage $message;
+    public array $message;
+    public int $conversationId;
+    public int $workspaceId;
 
-    public function __construct(ConversationMessage $message)
+    public function __construct(ConversationMessage $conversationMessage)
     {
-        $this->message = $message;
+        $conversation = $conversationMessage->conversation;
+        $contact = $conversation->contact;
+
+        $this->workspaceId = $conversation->workspace_id;
+        $this->conversationId = $conversation->id;
+
+        $this->message = [
+            'id'              => $conversationMessage->id,
+            'conversation_id' => $conversationMessage->conversation_id,
+            'direction'       => $conversationMessage->direction,
+            'type'            => $conversationMessage->type,
+            'body'            => $conversationMessage->body,
+            'media_url'       => $conversationMessage->media_url,
+            'caption'         => $conversationMessage->caption,
+            'status'          => $conversationMessage->status,
+            'sent_at'         => $conversationMessage->sent_at?->toISOString(),
+            'created_at'      => $conversationMessage->created_at?->toISOString(),
+        ];
     }
 
     /**
@@ -32,44 +53,28 @@ class MessageReceived implements ShouldBroadcastNow
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('workspace.' . $this->message->conversation->workspace_id),
+            new PrivateChannel('chat.' . $this->workspaceId),
         ];
     }
 
     /**
+     * Custom event name for the frontend.
+     * Frontend listens with: .listen('.message.received', ...)
+     */
+    public function broadcastAs(): string
+    {
+        return 'message.received';
+    }
+
+    /**
      * Explicit payload sent to the frontend.
-     * Includes full message data + contact info for the sidebar update.
      */
     public function broadcastWith(): array
     {
-        $conversation = $this->message->conversation;
-        $contact = $conversation->contact;
-
         return [
-            'message' => [
-                'id'              => $this->message->id,
-                'conversation_id' => $this->message->conversation_id,
-                'direction'       => $this->message->direction,
-                'type'            => $this->message->type,
-                'body'            => $this->message->body,
-                'media_url'       => $this->message->media_url,
-                'caption'         => $this->message->caption,
-                'status'          => $this->message->status,
-                'sent_at'         => $this->message->sent_at?->toISOString(),
-            ],
-            'conversation' => [
-                'id'                   => $conversation->id,
-                'contact'              => $contact ? [
-                    'id'    => $contact->id,
-                    'name'  => $contact->name,
-                    'phone' => $contact->phone,
-                ] : null,
-                'last_message_at'      => $conversation->last_message_at?->toISOString(),
-                'last_message_preview' => $conversation->last_message_preview,
-                'unread_count'         => $conversation->unread_count,
-                'status'               => $conversation->status,
-                'platform'             => $conversation->platform,
-            ],
+            'message'        => $this->message,
+            'conversationId' => $this->conversationId,
+            'workspaceId'    => $this->workspaceId,
         ];
     }
 }

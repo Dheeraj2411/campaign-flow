@@ -10,6 +10,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Campaign extends Model
 {
+    protected static function booted()
+    {
+        static::addGlobalScope(new \App\Scopes\TenantScope);
+    }
     /** @use HasFactory<\Database\Factories\CampaignFactory> */
     use HasFactory, TenantScope;
 

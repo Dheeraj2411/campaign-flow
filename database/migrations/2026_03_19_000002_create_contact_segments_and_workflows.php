@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('name');
-            $table->json('conditions')->nullable();
+            $table->jsonb('conditions')->nullable();
             $table->timestamps();
         });
 
@@ -21,8 +21,8 @@ return new class extends Migration
             $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('name');
             $table->string('trigger');
-            $table->json('conditions')->nullable();
-            $table->json('actions');
+            $table->jsonb('conditions')->nullable();
+            $table->jsonb('actions');
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
@@ -32,7 +32,7 @@ return new class extends Migration
             $table->foreignId('workflow_id')->constrained()->cascadeOnDelete();
             $table->foreignId('contact_id')->nullable()->constrained()->nullOnDelete();
             $table->string('trigger');
-            $table->json('data')->nullable();
+            $table->jsonb('data')->nullable();
             $table->string('status')->default('pending');
             $table->text('notes')->nullable();
             $table->timestamps();

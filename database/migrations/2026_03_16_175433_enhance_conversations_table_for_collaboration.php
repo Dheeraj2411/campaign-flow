@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::table('conversations', function (Blueprint $table) {
             $table->foreignId('assigned_to')->nullable()->constrained('users')->onDelete('set null');
-            $table->timestamp('last_incoming_at')->nullable()->index();
-            $table->timestamp('last_outgoing_at')->nullable()->index();
+            $table->timestampTz('last_incoming_at')->nullable()->index();
+            $table->timestampTz('last_outgoing_at')->nullable()->index();
             $table->jsonb('tags')->nullable();
             $table->string('last_message_preview')->nullable();
         });

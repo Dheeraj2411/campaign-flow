@@ -1,5 +1,5 @@
 <template>
-    <AppLayout title="Import Contacts" subtitle="Upload a CSV file to bulk add contacts">
+    <HeadTitle title="Import Contacts" subtitle="Upload a CSV file to bulk add contacts">
         <BaseCard class="max-w-xl mx-auto mt-8 p-6">
             <h2 class="text-lg font-semibold text-slate-800 mb-4">Upload CSV File</h2>
             <p class="text-sm text-slate-600 mb-6">
@@ -41,13 +41,13 @@
                 </div>
             </form>
         </BaseCard>
-    </AppLayout>
+    </HeadTitle>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useForm } from '@inertiajs/vue3'
-import AppLayout from '@/Layouts/AppLayout.vue'
+import HeadTitle from '@/Components/HeadTitle.vue'
 import BaseCard    from '@/Components/BaseCard.vue'
 import BaseButton  from '@/Components/BaseButton.vue'
 

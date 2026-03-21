@@ -48,4 +48,21 @@ class CampaignAnalyticsService
 
         return array_merge(['campaign_name' => $campaign->name], $stats);
     }
+
+    public function getDailyTrend(int $workspaceId, string $startDate, string $endDate): array
+    {
+        $trends = MessageLog::whereHas('campaign', fn($q) => $q->where('workspace_id', $workspaceId))
+            ->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->selectRaw('DATE(created_at) as date')
+            ->selectRaw('count(*) as sent')
+            ->selectRaw('sum(case when status = \'delivered\' then 1 else 0 end) as delivered')
+            ->selectRaw('sum(case when status = \'read\' then 1 else 0 end) as read')
+            ->selectRaw('sum(case when status = \'failed\' then 1 else 0 end) as failed')
+            ->groupBy(DB::raw('DATE(created_at)'))
+            ->orderBy('date')
+            ->get()
+            ->toArray();
+
+        return $trends;
+    }
 }

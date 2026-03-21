@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\AgentTyping;
+use App\Events\ConversationLocked;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use Illuminate\Http\Request;
@@ -29,8 +31,8 @@ class InboxController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Conversation::with(['contact', 'assignee'])
-            ->where('workspace_id', $this->activeWorkspaceId());
+        $query = Conversation::where('workspace_id', $this->activeWorkspaceId())
+            ->with(['contact:id,name,phone', 'latestMessage', 'assignee']);
 
         // Apply optional filters
         if ($request->filled('platform')) {
@@ -60,8 +62,8 @@ class InboxController extends Controller
             }
         }
 
-        $conversations = $query->orderBy('last_message_at', 'desc')
-            ->paginate(50)
+        $conversations = $query->orderByDesc('updated_at')
+            ->paginate(20)
             ->withQueryString();
 
         $workspace = \App\Models\Workspace::find($this->activeWorkspaceId());
@@ -87,10 +89,9 @@ class InboxController extends Controller
      */
     public function show(Request $request, Conversation $conversation)
     {
-        // Security: only allow access to own workspace conversations
         abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
 
-        // Reset unread badge since user is now viewing this conversation
+        // Reset unread badge
         $conversation->update(['unread_count' => 0]);
 
         $query = $conversation->messages()->orderBy('sent_at', 'desc');
@@ -110,12 +111,18 @@ class InboxController extends Controller
 
     // ─── SEND A REPLY ──────────────────────────────────────
 
-    /**
-     * Send a reply message in a conversation (text, image, video, or document).
-     */
     public function reply(Request $request, Conversation $conversation)
     {
         abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
+
+        // Check if locked by another agent before sending
+        if ($conversation->locked_by && $conversation->locked_by !== auth()->id()) {
+            $agentName = \App\Models\User::find($conversation->locked_by)?->name ?? 'another agent';
+            return response()->json([
+                'success' => false,
+                'error'   => "Conversation locked by {$agentName}",
+            ], 423);
+        }
 
         $validated = $request->validate([
             'body'      => 'nullable|string|max:5000',
@@ -126,7 +133,6 @@ class InboxController extends Controller
 
         $type = $validated['type'] ?? ConversationMessage::TYPE_TEXT;
 
-        // Text messages must have a body
         if ($type === ConversationMessage::TYPE_TEXT && empty($validated['body'])) {
             return response()->json([
                 'success' => false,
@@ -134,19 +140,14 @@ class InboxController extends Controller
             ], 422);
         }
 
-        // Proactive WhatsApp token check
         if ($conversation->platform === 'whatsapp') {
             $workspace = \App\Models\Workspace::find($this->activeWorkspaceId());
             $ws = new \App\Services\WhatsAppService($workspace);
             if (!$ws->verifyToken()) {
-                return response()->json([
-                    'success' => false,
-                    'error'   => 'WhatsApp API token is expired or missing. Please check your settings.',
-                ], 401);
+                return response()->json(['success' => false, 'error' => 'WhatsApp API token is expired or missing.'], 401);
             }
         }
 
-        // Create the message record
         $msg = $conversation->messages()->create([
             'direction' => ConversationMessage::DIRECTION_OUTBOUND,
             'type'      => $type,
@@ -157,112 +158,152 @@ class InboxController extends Controller
             'sent_at'   => now(),
         ]);
 
-        // Update conversation metadata
         $conversation->update([
             'last_message_at'      => now(),
             'last_message_preview' => Str::limit($validated['body'] ?? "[{$type}]", 100),
             'unread_count'         => 0,
         ]);
 
-        // Broadcast for real-time UI updates in other browser tabs/users
         try {
             broadcast(new \App\Events\MessageReceived($msg->load('conversation.contact')))->toOthers();
-        } catch (\Exception $e) {
-            // If Reverb is not running, log and continue — the polling fallback will pick it up
-            \Illuminate\Support\Facades\Log::warning("Broadcast failed (reply): " . $e->getMessage());
-        }
+        } catch (\Exception $e) {}
 
-        // Dispatch the actual sending job (WhatsApp/Telegram API call) to the queue
         if ($msg instanceof \App\Models\ConversationMessage) {
             \App\Jobs\SendConversationMessageJob::dispatch($msg->id);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => $msg,
-        ]);
+        return response()->json(['success' => true, 'message' => $msg]);
     }
 
     // ─── ASSIGN CONVERSATION ───────────────────────────────
 
-    /**
-     * Assign a conversation to a team member.
-     */
+    // Old assign method for fallback
     public function assign(Request $request, Conversation $conversation)
     {
         abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
+        $validated = $request->validate(['user_id' => 'nullable|exists:users,id']);
+        $conversation->update(['assigned_to' => $validated['user_id']]);
+        return response()->json(['success' => true]);
+    }
 
-        $validated = $request->validate([
-            'user_id' => 'nullable|exists:users,id',
+    public function assignConversation(Request $request, Conversation $conversation)
+    {
+        abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
+        $validated = $request->validate(['agent_id' => 'nullable|exists:users,id']);
+        
+        $conversation->update(['assigned_to' => $validated['agent_id']]);
+        
+        // Hypothetical ConversationAssigned event if required
+        // broadcast(new ConversationAssigned($conversation))->toOthers();
+
+        return response()->json(['success' => true]);
+    }
+
+    // ─── MULTI-AGENT ACTIONS ───────────────────────────────
+
+    public function lockConversation(Conversation $conversation)
+    {
+        abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
+
+        if ($conversation->locked_by && $conversation->locked_by !== auth()->id()) {
+            return response()->json(['success' => false, 'error' => 'Already locked by another agent'], 409);
+        }
+
+        $conversation->update([
+            'locked_by' => auth()->id(),
+            'locked_at' => now()
         ]);
 
-        $conversation->update(['assigned_to' => $validated['user_id']]);
+        try {
+            broadcast(new ConversationLocked(
+                $conversation->id,
+                auth()->id(),
+                auth()->user()->name,
+                $conversation->workspace_id
+            ))->toOthers();
+        } catch (\Exception $e) {}
+
+        return response()->json(['success' => true]);
+    }
+
+    public function unlockConversation(Conversation $conversation)
+    {
+        abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
+
+        if ($conversation->locked_by === auth()->id()) {
+            $conversation->update(['locked_by' => null, 'locked_at' => null]);
+
+            try {
+                broadcast(new ConversationLocked(
+                    $conversation->id,
+                    null,
+                    null,
+                    $conversation->workspace_id
+                ))->toOthers();
+            } catch (\Exception $e) {}
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    public function typingIndicator(Request $request, Conversation $conversation)
+    {
+        abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
+
+        try {
+            broadcast(new AgentTyping(
+                $conversation->id,
+                auth()->id(),
+                auth()->user()->name,
+                $conversation->workspace_id
+            ))->toOthers();
+        } catch (\Exception $e) {}
 
         return response()->json(['success' => true]);
     }
 
     // ─── UPDATE STATUS ─────────────────────────────────────
 
-    /**
-     * Open / Close / Set pending on a conversation.
-     */
     public function updateStatus(Request $request, Conversation $conversation)
     {
         abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
-
-        $validated = $request->validate([
-            'status' => 'required|string|in:open,closed,pending',
-        ]);
-
+        $validated = $request->validate(['status' => 'required|string|in:open,closed,pending']);
         $conversation->update(['status' => $validated['status']]);
+
+        if ($validated['status'] === 'closed') {
+            try {
+                app(\App\Services\AutomationWorkflowService::class)->trigger('conversation_closed', [
+                    'conversation_id' => $conversation->id,
+                    'workspace_id'    => $conversation->workspace_id,
+                    'contact_id'      => $conversation->contact_id
+                ]);
+            } catch (\Throwable $e) {}
+        }
 
         return response()->json(['success' => true]);
     }
 
     // ─── INTERNAL NOTES ────────────────────────────────────
 
-    /**
-     * Add an internal team note to a conversation (not visible to the customer).
-     */
     public function addNote(Request $request, Conversation $conversation)
     {
         abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
-
-        $validated = $request->validate([
-            'body' => 'required|string|max:5000',
-        ]);
-
+        $validated = $request->validate(['body' => 'required|string|max:5000']);
         $note = $conversation->notes()->create([
             'user_id' => auth()->id(),
             'body'    => $validated['body'],
         ]);
-
-        return response()->json([
-            'success' => true,
-            'note'    => $note->load('user'),
-        ]);
+        return response()->json(['success' => true, 'note' => $note->load('user')]);
     }
 
-    /**
-     * Fetch all internal notes for a conversation.
-     */
     public function fetchNotes(Request $request, Conversation $conversation)
     {
         abort_if($conversation->workspace_id !== $this->activeWorkspaceId(), 403);
-
-        $query = $conversation->notes()
-            ->with('user')
-            ->orderBy('created_at', 'desc');
-
+        $query = $conversation->notes()->with('user')->orderBy('created_at', 'desc');
         if ($request->filled('before')) {
             $query->where('created_at', '<', $request->before);
         }
-
         $notes = $query->limit(20)->get();
-
-        return response()->json([
-            'notes'    => $notes,
-            'has_more' => $notes->count() === 20,
-        ]);
+        return response()->json(['notes' => $notes, 'has_more' => $notes->count() === 20]);
     }
 }

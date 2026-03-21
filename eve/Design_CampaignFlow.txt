@@ -1,0 +1,561 @@
+CampaignFlow Pro
+
+System Design & UI/UX Design Document
+
+Version 1.0 | Architecture + Component Specs | March 2026
+
+1. High-Level System Architecture
+
+CampaignFlow Pro is a modular monolith. All components run in a single
+Laravel process namespace, sharing the same PostgreSQL 16 database, but
+logically separated by service/domain boundaries. This avoids the
+operational overhead of microservices while maintaining clear code
+separation. PostgreSQL is used specifically for its jsonb GIN indexes
+(contact tag filtering), timestampTz columns (timezone-aware message
+history), and the @> containment operator for performant JSON queries.
+
+Request Flow (Web)
+
+Browser (Vue 3 + Inertia)
+
+|
+
+| HTTP / WebSocket (Reverb)
+
+v
+
+Laravel 12 (Nginx / FPM)
+
+|- Route -> Middleware (Auth, SetTenant)
+
+|- Controller
+
+|- Service Layer (WhatsAppService, AutomationWorkflowService, ...)
+
+|- Model / Eloquent
+
+|
+
+v
+
+PostgreSQL 16 Database <---> Redis (Cache, Queue, Rate Limiter)
+
+|
+
+v
+
+Laravel Horizon (Queue Workers)
+
+|- SendMessageJob (high queue)
+
+|- CampaignSendChunkJob (medium queue)
+
+|- Analytics / Export jobs (low queue)
+
+|
+
+v
+
+External APIs
+
+|- Meta WhatsApp Cloud API v22.0
+
+|- Telegram Bot API
+
+2. Domain / Service Layer Map
+
+  ------------------------------- ------------------------------ ------------------------
+  Service / Job                   Responsibility                 Calls Into
+
+  WhatsAppService                 All Meta API interactions:     Meta Graph API v22.0
+                                  sendMessage, sendMedia,        
+                                  sendTemplate, verifyToken      
+
+  TelegramService                 All Telegram Bot API           Telegram Bot API
+                                  interactions                   
+
+  AutomationWorkflowService       Trigger resolution, condition  SendMessageJob,
+                                  matching, action dispatch      WhatsAppService
+
+  CampaignAnalyticsService        Aggregate message funnel stats PostgreSQL —
+                                  from message_status_history    message_logs,
+                                                                 message_status_history
+                                                                 (timestampTz)
+
+  CampaignStatusService           Update campaign status on      Campaign model
+                                  completion/failure             
+
+  MessagePersonalizationService   Replace {{name}}, {{phone}}    Contact model
+                                  tokens in message body         
+
+  UsageService                    Check workspace plan quotas    Plan model, MessageLog
+                                  before campaign/message        counts
+                                  creation                       
+
+  MetaApiService                  Low-level Meta REST wrapper    Meta Graph API
+                                  (token verification, phone ID  
+                                  lookup)                        
+
+  DispatchCampaignJob             Chunk contacts, batch-dispatch CampaignSendChunkJob,
+                                  CampaignSendChunkJob           ContactSegment
+
+  CampaignSendChunkJob            Bulk-insert MessageLog         SendMessageJob,
+                                  records, dispatch              MessageLog
+                                  SendMessageJob per log         
+
+  SendMessageJob                  Rate-limited actual send;      WhatsAppService /
+                                  updates status; retry on       TelegramService
+                                  failure                        
+
+  SendConversationMessageJob      Send inbox reply via           WhatsAppService, Reverb
+                                  WhatsApp/Telegram; broadcast   broadcast
+                                  result                         
+  ------------------------------- ------------------------------ ------------------------
+
+3. Data Flow Diagrams
+
+3.1 Inbound Message Flow (WhatsApp Webhook)
+
+Inbound Message
+
+Meta Server
+
+POST /api/webhook/whatsapp
+
+|
+
+v
+
+WhatsAppWebhookController
+
+|- Verify webhook signature (X-Hub-Signature-256)
+
+|- Parse entry.changes[].value
+
+|
+
+|- IF messages[]: IF statuses[]:
+
+| | |
+
+| v v
+
+| Find or create Conversation Find MessageLog by platform_message_id
+
+| Create ConversationMessage Update MessageLog.status
+
+| Update Conversation.unread_count Insert message_status_history row
+
+| Run AutomationWorkflowService Broadcast MessageStatusUpdated event
+
+| Broadcast MessageReceived event
+
+|
+
+v
+
+200 OK (always respond fast; async everything)
+
+3.2 Outbound Campaign Flow
+
+Campaign Send
+
+User clicks 'Send Campaign'
+
+|
+
+v
+
+CampaignController@store
+
+|- Validate quota (UsageService)
+
+|- Verify WhatsApp token
+
+|- Create Campaign (status=draft)
+
+|- Dispatch DispatchCampaignJob
+
+|
+
+v
+
+DispatchCampaignJob (medium queue)
+
+|- Set campaign status = running
+
+|- Query contacts (segment OR tag OR all)
+
+|- Chunk(100) -> dispatch CampaignSendChunkJob x N
+
+|- Bus::batch() — marks failed on any chunk exception
+
+|
+
+v
+
+CampaignSendChunkJob x N (medium queue, parallel)
+
+|- Personalize message per contact
+
+|- Bulk-insert MessageLog rows (status=pending)
+
+|- Dispatch SendMessageJob per log
+
+|
+
+v
+
+SendMessageJob (high queue, per contact)
+
+|- Redis RateLimiter (80/min per workspace)
+
+|- Call WhatsAppService::sendTemplate()
+
+|- Update MessageLog.status = sent / failed
+
+|- On final failure: store failure_reason
+
+3.3 Automation Trigger Flow
+
+Automation Engine
+
+Event occurs (e.g. 'message_received')
+
+|
+
+v
+
+AutomationWorkflowService::executeTrigger(trigger, payload)
+
+|- Fetch active workflows for workspace matching trigger
+
+|- For each workflow:
+
+|- conditionsMatch(conditions, payload) — exits if false
+
+|- Create WorkflowExecution (status=running)
+
+|- For each action:
+
+|- performAction(workflow, payload, action)
+
+|- 'send_campaign_message' -> SendMessageJob
+
+|- 'tag_contact' -> contact.tags update
+
+|- 'assign_conversation' -> Conversation.assigned_to
+
+|- 'change_status' -> Conversation.status
+
+|- 'delay' -> ResumeWorkflowJob::dispatch()->delay()
+
+|- 'send_template' -> WhatsAppService::sendTemplate()
+
+|- 'webhook' -> Http::post(url, payload)
+
+|- Update WorkflowExecution (status=completed|failed)
+
+4. Chat Inbox UI Design Specification
+
+4.1 Layout Structure
+
+Inbox Layout (1440px desktop)
+
++------------------------------------------------------------------+
+
+| AppLayout header (existing) |
+
++------------------+-----------------------------------------------+
+
+| | Conversation Header |
+
+| CONVERSATIONS | [Contact Name] [Platform] [Status] [Assign]|
+
+| PANEL +-----------------------------------------------+
+
+| (320px) | |
+
+| [Search bar] | MESSAGE THREAD |
+
+| [Filter tabs] | (scrollable, virtual, newest at bottom) |
+
+| All|Unread|Mine | |
+
+| | [ Received bubble (left) ] |
+
+| [ Conv item ] | [ Sent bubble (right) ] |
+
+| [ Conv item ] | [ Received bubble (left) ] |
+
+| [ Conv item *] ]| [ Sent bubble (right) ] ✓✓ |
+
+| [ Conv item ] | |
+
+| [ Conv item ] +-----------------------------------------------+
+
+| [ Conv item ] | [Canned] [Template] [Text input......] [>] |
+
++------------------+-----------------------------------------------+
+
+4.2 Conversation List Item (ConversationItem.vue)
+
+  ---------------- --------------------------- ---------------------------
+  Element          Content                     Styling Note
+
+  Avatar           Contact initials (2 chars)  Color derived from
+                   in colored circle           contact.id % palette
+
+  Name             contact.name (truncated 20  Font-weight 600, dark
+                   chars)                      
+
+  Preview          last_message_preview        Text-gray-500, text-sm
+                   (truncated 35 chars)        
+
+  Timestamp        Relative (e.g. '2m', '1h',  text-xs, text-gray-400,
+                   'Mon')                      top-right
+
+  Unread badge     Orange pill with count      Hidden if unread_count ===
+                                               0
+
+  Platform icon    WhatsApp green / Telegram   16px, bottom-left of avatar
+                   blue icon                   
+
+  Active indicator Left border 3px             Show when this conv is
+                   primary-color               selected
+  ---------------- --------------------------- ---------------------------
+
+4.3 Message Bubble (MessageBubble.vue)
+
+  -------------------- --------------------------- -----------------------
+  Prop                 Value                       Visual Effect
+
+  direction = inbound  Left-aligned, gray-100 bg   Contact bubble
+
+  direction = outbound Right-aligned, primary-100  Agent bubble
+                       bg                          
+
+  status = pending     Single clock icon (gray)    Message queued
+
+  status = sent        Single tick (gray)          API accepted
+
+  status = delivered   Double tick (gray)          Delivered to device
+
+  status = read        Double tick (blue)          Contact opened chat
+
+  status = failed      X icon (red) + tooltip      Retry button shown
+                       failure_reason              
+
+  type = image         Thumbnail with caption      Lightbox on click
+                       below                       
+
+  type = document      Document icon + filename    Download link
+  -------------------- --------------------------- -----------------------
+
+4.4 Filter Tabs
+
+  ------------------- ------------------------------- -------------------
+  Tab                 Server Filter Params            Badge
+
+  All                 none                            Total conversations
+
+  Unread              engagement=needs_reply          Count of unread
+
+  Mine                assignee_id={currentUser}       My assigned count
+
+  Pending             status=pending                  Pending count
+
+  Closed              status=closed                   none
+  ------------------- ------------------------------- -------------------
+
+5. Tag Manager UI Design
+
+A slide-over panel (right drawer, 400px wide) accessible from the
+Contacts page header. Built as Tags/Manager.vue.
+
+  -------------------- --------------------------------------------------
+  UI Element           Behavior
+
+  Tag list             Workspace tags sorted alphabetically; each row
+                       shows color swatch, name, contact count
+
+  Create tag           Inline form at top: name input + color picker
+                       (preset palette of 8 colors) + Save
+
+  Rename tag           Click tag name to make it editable inline; blur or
+                       Enter to save (PATCH /tags/{id})
+
+  Delete tag           Trash icon → confirmation modal showing contact
+                       count → DELETE /tags/{id}
+
+  Tag contacts         In Contact detail: multi-select tag chips with
+                       autocomplete; POST /contacts/{id}/tags
+  -------------------- --------------------------------------------------
+
+6. Analytics Page Design
+
+6.1 Dashboard Layout
+
+Analytics Page
+
++-------------------------------------------------------------+
+
+| Date Range Picker [Last 7 days v] [Refresh] |
+
++-------------------------------------------------------------+
+
+| [Sent: 12,400] [Delivered: 11,800] [Read: 9,200] [Failed: 600] |
+
++-------------------------------------------------------------+
+
+| FUNNEL CHART (ApexCharts bar) | TOP CAMPAIGNS |
+
+| | table (name, |
+
+| Sent ███████████████████ 12,400 | sent, read, |
+
+| Delivered █████████████ 11,800 | failed) |
+
+| Read ██████████ 9,200 | |
+
+| Failed ██ 600 | |
+
++-------------------------------------------------------------+
+
+| DAILY TREND (line chart: sent + delivered + read by day) |
+
++-------------------------------------------------------------+
+
+6.2 Per-Campaign Funnel (Campaigns/Show.vue)
+
+Add a new 'Funnel' tab to the existing Show page. A horizontal bar chart
+with 4 stages using data from GET /campaigns/{id}/funnel. Below the
+chart: a data table of contacts with their last status + failure_reason
+if applicable.
+
+7. Workflow Builder UI Design (Workflows/Index.vue)
+
+The existing Workflows/Index.vue shows a list. The builder itself is
+currently a simple form. The design spec below defines the improved
+builder panel.
+
+  -------------------- ----------------------- ---------------------------
+  Section              UI Component            Notes
+
+  Trigger selector     Dropdown:               One trigger per workflow
+                       message_received,       
+                       conversation_closed,    
+                       tag_added,              
+                       campaign_replied        
+
+  Conditions           Add Condition button →  AND logic between
+                       field selector +        conditions
+                       operator dropdown +     
+                       value input, repeatable 
+
+  Actions              Add Action button →     Supports all 7 action types
+                       action type dropdown →  
+                       dynamic fields per      
+                       type, draggable order   
+
+  Delay action         Minutes input           Shows as orange 'wait'
+                       (1–10080) + optional    block in list
+                       note field              
+
+  Active toggle        Toggle switch in list   Confirms before
+                       row; PATCH              deactivating
+                       /workflows/{id}         
+                       {is_active}             
+
+  Execution log        Side panel: last 20     Link to contact profile
+                       WorkflowExecution rows  
+                       with status, contact,   
+                       timestamp               
+  -------------------- ----------------------- ---------------------------
+
+8. Vue Component Hierarchy
+
+Component Tree
+
+AppLayout.vue (existing)
+
+|- Pages/Inbox/Index.vue (NEW — replaces old)
+
+| |- Components/Inbox/ConversationList.vue
+
+| | |- Components/Inbox/ConversationItem.vue
+
+| |- Components/Inbox/ChatWindow.vue
+
+| | |- Components/Inbox/MessageBubble.vue
+
+| | |- Components/Inbox/MessageInput.vue
+
+| | |- Components/Inbox/TemplatePickerModal.vue
+
+| |- Components/Inbox/ConversationHeader.vue
+
+|
+
+|- Pages/Contacts/Index.vue (add tag filter)
+
+| |- Components/Tags/TagManager.vue (NEW)
+
+| |- Components/Tags/TagChip.vue (NEW)
+
+|
+
+|- Pages/Analytics/Index.vue (extend existing)
+
+| |- Components/Analytics/FunnelChart.vue (NEW)
+
+| |- Components/Analytics/TrendChart.vue (NEW)
+
+|
+
+|- Pages/Campaigns/Show.vue (add Funnel tab)
+
+|
+
+|- Pages/Workflows/Index.vue (extend builder)
+
+|- Components/Workflows/ActionBuilder.vue (NEW)
+
+|- Components/Workflows/ConditionBuilder.vue (NEW)
+
+9. Implementation Phases
+
+  --------------- -------------------------- ---------------- --------------
+  Phase           Scope                      Estimated Effort Risk
+
+  Phase 1A — Bug  Segment dispatch fix,      2–3 days         Low
+  Fixes           failure_reason column,                      
+                  message_status_history                      
+
+  Phase 1B —      Rate limiter in            2–3 days         Low
+  Queue Hardening SendMessageJob, priority                    
+                  queues in Horizon, retry                    
+                  config                                      
+
+  Phase 2 — Tag   tags + contact_tag tables, 4–5 days         Medium (data +
+  Normalization   TagController,                              Postgres
+                  TagManager.vue, contact                     migration)
+                  filter, migrate existing                    
+                  jsonb arrays to pivot                       
+
+  Phase 3 — Chat  New Inbox Vue components,  5–7 days         Medium
+  Inbox Rebuild   Pinia store, virtual                        
+                  scroll, real-time                           
+                  subscription                                
+
+  Phase 4 —       FunnelChart.vue, analytics 3–4 days         Low
+  Analytics       API endpoints,                              
+  Funnel          per-campaign funnel tab                     
+
+  Phase 5 —       New action types, new      4–5 days         Medium
+  Automation      triggers, workflow builder                  
+  Expansion       UI improvements                             
+  --------------- -------------------------- ---------------- --------------
+
+Total estimated effort: 20–27 engineering days (4–6 weeks solo
+developer, 2–3 weeks two-person team).

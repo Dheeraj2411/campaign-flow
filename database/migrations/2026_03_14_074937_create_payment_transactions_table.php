@@ -21,8 +21,8 @@ return new class extends Migration
             $table->integer('amount'); // in smallest currency unit (paise/cents)
             $table->string('currency', 10)->default('INR');
             $table->string('status')->default('pending'); // pending | completed | failed
-            $table->json('receipt_data')->nullable();
-            $table->timestamp('activated_at')->nullable();
+            $table->jsonb('receipt_data')->nullable();
+            $table->timestampTz('activated_at')->nullable();
             $table->timestamps();
         });
     }

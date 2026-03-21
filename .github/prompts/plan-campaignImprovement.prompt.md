@@ -1,4 +1,4 @@
-## PRD: Campaign Flow Scalability, Queue, and Architecture Improvements
+## PRD: PingOS Scalability, Queue, and Architecture Improvements
 
 Problem statement:
 - Bulk campaign dispatch and per-message jobs create huge queue pressure.

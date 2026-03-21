@@ -19,7 +19,7 @@ return new class extends Migration
             $table->integer('max_contacts')->default(0);
             $table->integer('max_campaigns')->default(0);
             $table->integer('max_messages_per_month')->default(0);
-            $table->json('features')->nullable();
+            $table->jsonb('features')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

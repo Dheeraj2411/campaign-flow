@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class MessageTemplate extends Model
 {
+    protected static function booted()
+    {
+        static::addGlobalScope(new \App\Scopes\TenantScope);
+    }
     /** @use HasFactory<\Database\Factories\MessageTemplateFactory> */
     use HasFactory, TenantScope;
 

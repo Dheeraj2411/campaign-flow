@@ -42,13 +42,19 @@ class DispatchCampaignJob implements ShouldQueue
 
             $query = Contact::query(); // TenantScope handles isolation
 
-            if ($campaign->contact_group_id && $campaign->contact_group_id !== 'all') {
-                $query->whereJsonContains('tags', $campaign->contact_group_id);
+            if ($campaign->contact_segment_id) {
+                $segment = \App\Models\ContactSegment::find($campaign->contact_segment_id);
+                if ($segment) {
+                    $query->segment($segment);
+                }
+            } elseif ($campaign->contact_group_id && $campaign->contact_group_id !== 'all') {
+                $query->whereRaw("tags @> ?::jsonb", [json_encode([$campaign->contact_group_id])]);
             }
 
+            $chunkSize = $campaign->workspace->campaign_chunk_size ?? 50;
             $jobs = [];
 
-            $query->chunk(100, function ($contacts) use ($campaign, &$jobs) {
+            $query->chunk($chunkSize, function ($contacts) use ($campaign, &$jobs) {
                 $jobs[] = new CampaignSendChunkJob($campaign->id, $contacts->pluck('id')->toArray());
             });
 

@@ -15,7 +15,7 @@ class CampaignSendChunkJob implements ShouldQueue
 {
     use InteractsWithQueue, Queueable, SerializesModels;
 
-    public string $queue = 'campaign-send';
+    public string $queue = 'medium';
 
     public function __construct(public int $campaignId, public array $contactIds) {}
 
@@ -61,7 +61,7 @@ class CampaignSendChunkJob implements ShouldQueue
                     ->get();
 
                 foreach ($insertedLogs as $log) {
-                    SendMessageJob::dispatch($log->id)->onQueue('campaign-send');
+                    SendMessageJob::dispatch($log->id)->onQueue('medium');
                 }
             }
         } catch (\Throwable $e) {

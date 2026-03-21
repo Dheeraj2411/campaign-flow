@@ -11,7 +11,7 @@ class TelegramService
 
     public function __construct(Workspace $workspace)
     {
-        $settings = $workspace->settings ?? [];
+        $settings = $workspace->getCachedSettings() ?? [];
         $this->botToken = $settings['telegram_bot_token'] ?? '';
     }
 

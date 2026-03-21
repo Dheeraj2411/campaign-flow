@@ -8,6 +8,10 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
+use App\Models\Workspace;
+use App\Models\ChatbotConfig;
+use App\Observers\WorkspaceObserver;
+use App\Observers\ChatbotConfigObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -31,6 +35,10 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        RateLimiter::for('webhook', function (Request $request) {
+            return Limit::perMinute(100)->by($request->ip());
+        });
+
         RateLimiter::for('webhooks', function (Request $request) {
             return Limit::perMinute(120)->by($request->ip());
         });
@@ -48,5 +56,12 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('view-contact-segment', fn($user, $segment) => (new \App\Policies\ContactSegmentPolicy)->view($user, $segment));
         Gate::define('create-contact-segment', fn($user) => (new \App\Policies\ContactSegmentPolicy)->create($user));
         Gate::define('delete-campaign', fn($user, $campaign) => (new \App\Policies\CampaignPolicy)->delete($user, $campaign));
+
+        Workspace::observe(WorkspaceObserver::class);
+        ChatbotConfig::observe(ChatbotConfigObserver::class);
+
+        \Illuminate\Support\Facades\Queue::failing(function (\Illuminate\Queue\Events\JobFailed $event) {
+            app(\App\Listeners\SendFailedJobNotification::class)->handle($event);
+        });
     }
 }

@@ -27,7 +27,7 @@ class AdminController extends Controller
                 'total_users'      => User::count(),
                 'total_workspaces' => Workspace::count(),
                 'total_revenue'    => PaymentTransaction::where('status', 'completed')->sum('amount'),
-                'active_campaigns' => \App\Models\Campaign::where('status', 'running')->count(),
+                'active_campaigns' => \App\Models\Campaign::withoutGlobalScope(\App\Scopes\TenantScope::class)->where('status', 'running')->count(),
             ],
             'recentUsers' => User::with('activeWorkspace:id,name,plan')->latest()->limit(5)->get(),
         ]);

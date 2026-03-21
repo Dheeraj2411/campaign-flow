@@ -14,8 +14,8 @@ return new class extends Migration
             $table->string('name');
             $table->string('phone');
             $table->string('telegram_username')->nullable();
-            $table->json('tags')->nullable();
-            $table->json('custom_attributes')->nullable();
+            $table->jsonb('tags')->nullable();
+            $table->jsonb('custom_attributes')->nullable();
             $table->timestamps();
         });
     }

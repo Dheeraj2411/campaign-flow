@@ -102,4 +102,58 @@ class AnalyticsController extends Controller
             ],
         ]);
     }
+
+    public function campaignFunnel(Campaign $campaign)
+    {
+        if ($campaign->workspace_id !== $this->workspaceId()) {
+            abort(403);
+        }
+
+        $logs = DB::table('message_status_history')
+            ->join('message_logs', 'message_status_history.message_log_id', '=', 'message_logs.id')
+            ->where('message_logs.campaign_id', $campaign->id)
+            ->select('message_status_history.status', DB::raw('count(*) as total'))
+            ->groupBy('message_status_history.status')
+            ->pluck('total', 'status')
+            ->toArray();
+
+        return response()->json([
+            'sent'      => $logs['sent'] ?? 0,
+            'delivered' => $logs['delivered'] ?? 0,
+            'read'      => $logs['read'] ?? 0,
+            'failed'    => $logs['failed'] ?? 0,
+        ]);
+    }
+
+    public function workspaceFunnel(Request $request)
+    {
+        $wid = $this->workspaceId();
+        $startDate = $request->query('start_date', now()->subDays(30)->toDateString());
+        $endDate = $request->query('end_date', now()->toDateString());
+
+        $logs = DB::table('message_status_history')
+            ->join('message_logs', 'message_status_history.message_log_id', '=', 'message_logs.id')
+            ->join('campaigns', 'message_logs.campaign_id', '=', 'campaigns.id')
+            ->where('campaigns.workspace_id', $wid)
+            ->whereBetween('message_status_history.occurred_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+            ->select('message_status_history.status', DB::raw('count(*) as total'))
+            ->groupBy('message_status_history.status')
+            ->pluck('total', 'status')
+            ->toArray();
+
+        return response()->json([
+            'sent'      => $logs['sent'] ?? 0,
+            'delivered' => $logs['delivered'] ?? 0,
+            'read'      => $logs['read'] ?? 0,
+            'failed'    => $logs['failed'] ?? 0,
+        ]);
+    }
+
+    public function trend(Request $request, \App\Services\CampaignAnalyticsService $analyticsService)
+    {
+        $startDate = $request->query('start_date', now()->subDays(30)->toDateString());
+        $endDate = $request->query('end_date', now()->toDateString());
+
+        return response()->json($analyticsService->getDailyTrend($this->workspaceId(), $startDate, $endDate));
+    }
 }

@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CannedResponse extends Model
 {
+    protected static function booted()
+    {
+        static::addGlobalScope(new \App\Scopes\TenantScope);
+    }
     protected $fillable = [
         'workspace_id',
         'shortcut',

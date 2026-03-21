@@ -17,6 +17,12 @@ return [
 
     'name' => env('HORIZON_NAME'),
 
+    'notifications' => [
+        'sms' => env('HORIZON_SMS_ALERT_PHONE'),
+        'email' => env('HORIZON_ALERT_EMAIL'),
+        'slack' => env('HORIZON_SLACK_WEBHOOK'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Horizon Domain
@@ -197,12 +203,31 @@ return [
     */
 
     'defaults' => [
-        'supervisor-1' => [
+        // Real-time inbox messages (WhatsApp/Telegram webhooks)
+        'supervisor-high' => [
             'connection' => 'redis',
-            'queue' => ['campaign-dispatch', 'campaign-send', 'conversation-send', 'notifications', 'imports'],
+            'queue' => ['high'],
+            'balance' => 'simple',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 5,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 60,
+            'nice' => 0,
+        ],
+
+        // CampaignSendChunkJob + SendMessageJob — bulk campaign delivery
+        'supervisor-campaigns' => [
+            'connection' => 'redis',
+            'queue' => ['medium'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
-            'maxProcesses' => 2,
+            'minProcesses' => 5,
+            'maxProcesses' => 20,
+            'balanceMaxShift' => 3,
+            'balanceCooldown' => 3,
             'maxTime' => 0,
             'maxJobs' => 0,
             'memory' => 256,
@@ -210,38 +235,93 @@ return [
             'timeout' => 120,
             'nice' => 0,
         ],
+
+        // DispatchCampaignJob — campaign orchestration / chunking
+        'supervisor-dispatch' => [
+            'connection' => 'redis',
+            'queue' => ['low'],
+            'balance' => 'simple',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 3,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 300,
+            'nice' => 0,
+        ],
+
+        // AutomationWorkflowService jobs
+        'supervisor-automations' => [
+            'connection' => 'redis',
+            'queue' => ['low'],
+            'balance' => 'simple',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 3,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 120,
+            'nice' => 0,
+        ],
+
+        // Fallback for any unassigned jobs
+        'supervisor-default' => [
+            'connection' => 'redis',
+            'queue' => ['default'],
+            'balance' => 'simple',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 3,
+            'timeout' => 60,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
         'production' => [
-            'supervisor-1' => [
-                'maxProcesses' => 20,
+            'supervisor-high' => [
+                'maxProcesses' => 10,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
-            'supervisor-campaign-send' => [
-                'connection' => 'redis',
-                'queue' => ['campaign-send'],
-                'balance' => 'auto',
+            'supervisor-campaigns' => [
+                'minProcesses' => 10,
                 'maxProcesses' => 40,
-                'memory' => 256,
-                'tries' => 3,
-                'timeout' => 120,
+                'balanceMaxShift' => 5,
+                'balanceCooldown' => 3,
             ],
-            'supervisor-conversation-send' => [
-                'connection' => 'redis',
-                'queue' => ['conversation-send'],
-                'balance' => 'auto',
-                'maxProcesses' => 20,
-                'memory' => 256,
-                'tries' => 3,
-                'timeout' => 90,
+            'supervisor-dispatch' => [
+                'maxProcesses' => 5,
+            ],
+            'supervisor-automations' => [
+                'maxProcesses' => 5,
+            ],
+            'supervisor-default' => [
+                'maxProcesses' => 3,
             ],
         ],
 
         'local' => [
-            'supervisor-1' => [
+            'supervisor-high' => [
+                'maxProcesses' => 2,
+            ],
+            'supervisor-campaigns' => [
+                'minProcesses' => 1,
                 'maxProcesses' => 3,
+            ],
+            'supervisor-dispatch' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-automations' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-default' => [
+                'maxProcesses' => 1,
             ],
         ],
     ],

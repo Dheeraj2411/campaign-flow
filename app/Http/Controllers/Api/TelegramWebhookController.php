@@ -47,7 +47,7 @@ class TelegramWebhookController extends Controller
             }
 
             // Try to find the contact in this workspace
-            $contact = \App\Models\Contact::where('workspace_id', $workspace->id)
+            $contact = \App\Models\Contact::withoutGlobalScope(\App\Scopes\TenantScope::class)->where('workspace_id', $workspace->id)
                 ->where(function ($query) use ($fromUsername, $fromId, $chatId) {
                     if ($fromUsername) {
                         $query->whereRaw('LOWER(telegram_username) = ?', [strtolower($fromUsername)])
@@ -62,7 +62,7 @@ class TelegramWebhookController extends Controller
                 })->first();
 
             if (!$contact) {
-                $contact = \App\Models\Contact::create([
+                $contact = \App\Models\Contact::withoutGlobalScope(\App\Scopes\TenantScope::class)->create([
                     'workspace_id' => $workspace->id,
                     'name' => trim(($msg['from']['first_name'] ?? 'Unknown') . ' ' . ($msg['from']['last_name'] ?? '')),
                     'telegram_username' => $fromUsername ? '@' . $fromUsername : $fromId,
@@ -73,7 +73,7 @@ class TelegramWebhookController extends Controller
                 $contact->update(['telegram_chat_id' => $chatId]);
             }
 
-            $conversation = \App\Models\Conversation::updateOrCreate(
+            $conversation = \App\Models\Conversation::withoutGlobalScope(\App\Scopes\TenantScope::class)->updateOrCreate(
                 ['workspace_id' => $workspace->id, 'contact_id' => $contact->id, 'platform' => 'telegram'],
                 ['last_message_at' => now(), 'status' => 'open']
             );

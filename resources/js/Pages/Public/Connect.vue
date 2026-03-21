@@ -64,7 +64,7 @@
 
             <!-- Footer -->
             <p class="text-center mt-8 text-xs text-slate-400 flex items-center justify-center gap-1.5">
-                Powered by <span class="font-bold text-admin-primary tracking-tight">CampaignFlow</span>
+                Powered by <span class="font-bold text-admin-primary tracking-tight">PingOS</span>
             </p>
         </div>
     </div>

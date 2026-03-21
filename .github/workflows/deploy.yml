@@ -1,4 +1,4 @@
-name: Deploy CampaignFlow
+name: Deploy PingOS
 
 on:
   push:
@@ -36,4 +36,4 @@ jobs:
       run: |
         echo "Replace this with standard VPS deployment..."
         echo "e.g., rsync files, SSH into server, run 'docker compose up -d --build'"
-        # ssh user@server "cd /path/to/campaignflow && git pull && docker compose up -d --build"
+        # ssh user@server "cd /path/to/pingos && git pull && docker compose up -d --build"

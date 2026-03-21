@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('platform');
             $table->text('body');
-            $table->json('variables')->nullable();
+            $table->jsonb('variables')->nullable();
             $table->timestamps();
         });
     }

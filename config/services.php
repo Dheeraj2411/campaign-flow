@@ -47,8 +47,8 @@ return [
     ],
 
     'whatsapp' => [
-        'verify_token' => env('WHATSAPP_VERIFY_TOKEN', 'campaignflow_secret'),
-        'app_secret'   => env('WHATSAPP_APP_SECRET', 'campaignflow_app_secret'),
+        'verify_token' => env('WHATSAPP_VERIFY_TOKEN', 'pingos_secret'),
+        'app_secret'   => env('WHATSAPP_APP_SECRET', 'pingos_app_secret'),
     ],
 
 ];

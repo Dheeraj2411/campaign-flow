@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Conversation extends Model
 {
+    protected static function booted()
+    {
+        static::addGlobalScope(new \App\Scopes\TenantScope);
+    }
     const STATUS_OPEN    = 'open';
     const STATUS_PENDING = 'pending';
     const STATUS_CLOSED  = 'closed';

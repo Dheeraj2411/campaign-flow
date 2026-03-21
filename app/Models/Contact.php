@@ -6,9 +6,14 @@ use App\Traits\TenantScope;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Contact extends Model
 {
+    protected static function booted()
+    {
+        static::addGlobalScope(new \App\Scopes\TenantScope);
+    }
     /** @use HasFactory<\Database\Factories\ContactFactory> */
     use HasFactory, TenantScope;
 
@@ -32,13 +37,13 @@ class Contact extends Model
     {
         $query->when($filters['search'] ?? null, function ($query, $search) {
             $query->where(function ($query) use ($search) {
-                $query->where('name', 'like', '%' . $search . '%')
-                    ->orWhere('phone', 'like', '%' . $search . '%')
-                    ->orWhere('telegram_username', 'like', '%' . $search . '%');
+                $query->where('name', 'ilike', '%' . $search . '%')
+                    ->orWhere('phone', 'ilike', '%' . $search . '%')
+                    ->orWhere('telegram_username', 'ilike', '%' . $search . '%');
             });
         })->when($filters['tag'] ?? null, function ($query, $tag) {
             // Postgres JSONB containment check
-            $query->whereJsonContains('tags', $tag);
+            $query->whereRaw("tags @> ?::jsonb", [json_encode([$tag])]);
         });
     }
 
@@ -55,5 +60,10 @@ class Contact extends Model
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
+    }
+
+    public function normalizedTags(): BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class, 'contact_tag');
     }
 }

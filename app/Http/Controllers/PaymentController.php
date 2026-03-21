@@ -77,7 +77,7 @@ class PaymentController extends Controller
             'currency'       => $currency,
             'key_id'         => $keyId,
             'transaction_id' => $transaction->id,
-            'name'           => 'CampaignFlow',
+            'name'           => 'PingOS',
             'description'    => ucfirst($transaction->plan) . ' Plan',
         ]);
     }
@@ -101,7 +101,7 @@ class PaymentController extends Controller
                 'cancel_url'          => route('billing') . '?stripe_cancel=1',
                 'line_items[0][price_data][currency]'    => strtolower($currency),
                 'line_items[0][price_data][unit_amount]'  => $amount,
-                'line_items[0][price_data][product_data][name]' => 'CampaignFlow ' . ucfirst($transaction->plan) . ' Plan',
+                'line_items[0][price_data][product_data][name]' => 'PingOS ' . ucfirst($transaction->plan) . ' Plan',
                 'line_items[0][quantity]' => 1,
             ]);
 

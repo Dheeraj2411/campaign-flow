@@ -23,7 +23,7 @@ class SendConversationMessageJob implements ShouldQueue
 {
     use InteractsWithQueue, Queueable;
 
-    public string $queue = 'conversation-send';
+    public string $queue = 'high';
 
     /** Max retry attempts before marking as permanently failed. */
     public int $tries = 3;

@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('message_logs', function (Blueprint $table) {
-            $table->string('platform_message_id')->nullable()->index()->after('error_message');
+            $table->string('platform_message_id')->nullable()->index();
         });
     }
 

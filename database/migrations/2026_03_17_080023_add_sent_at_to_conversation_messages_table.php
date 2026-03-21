@@ -13,7 +13,7 @@ return new class extends Migration
     {
         if (!Schema::hasColumn('conversation_messages', 'sent_at')) {
             Schema::table('conversation_messages', function (Blueprint $table) {
-                $table->timestamp('sent_at')->nullable();
+                $table->timestampTz('sent_at')->nullable();
             });
         }
     }

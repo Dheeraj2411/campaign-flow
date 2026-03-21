@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class Workflow extends Model
 {
+    protected static function booted()
+    {
+        static::addGlobalScope(new \App\Scopes\TenantScope);
+    }
     use HasFactory;
 
     protected $fillable = [
@@ -15,12 +19,14 @@ class Workflow extends Model
         'trigger',
         'conditions',
         'actions',
+        'flow_data',
         'is_active',
     ];
 
     protected $casts = [
         'conditions' => 'array',
         'actions'    => 'array',
+        'flow_data'  => 'array',
         'is_active'  => 'boolean',
     ];
 

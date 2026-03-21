@@ -16,7 +16,7 @@ return new class extends Migration
             $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
             $table->foreignId('contact_id')->constrained()->cascadeOnDelete();
             $table->string('platform'); // whatsapp, telegram
-            $table->timestamp('last_message_at')->nullable();
+            $table->timestampTz('last_message_at')->nullable();
             $table->string('status')->default('open'); // open, closed
             $table->integer('unread_count')->default(0);
             $table->timestamps();

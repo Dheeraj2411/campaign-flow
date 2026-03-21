@@ -24,15 +24,11 @@ class ContactController extends Controller
     {
         return Inertia::render('Contacts/Index', [
             'filters' => $request->only(['search', 'tag']),
-            'contacts' => Contact::filter($request->only(['search', 'tag']))
+            'contacts' => Contact::with('tags')->filter($request->only(['search', 'tag']))
             ->latest()
             ->paginate(20)
             ->withQueryString(),
-            'allTags' => Contact::whereNotNull('tags')
-            ->pluck('tags')
-            ->flatten()
-            ->unique()
-            ->values(),
+            'allTags' => \App\Models\Tag::where('workspace_id', auth()->user()->active_workspace_id)->get(),
             'lastImportError' => auth()->user()->activeWorkspace->last_import_error ?? null,
         ]);
     }
@@ -123,5 +119,65 @@ class ContactController extends Controller
     {
         auth()->user()->activeWorkspace->update(['last_import_error' => null]);
         return back();
+    }
+
+    public function timeline(Contact $contact)
+    {
+        abort_if($contact->workspace_id !== $this->workspaceId(), 403);
+
+        $events = collect();
+
+        // 1. Message Logs (Campaigns)
+        $logs = \App\Models\MessageLog::where('contact_id', $contact->id)->get()->map(function ($log) {
+            return [
+                'type' => 'campaign',
+                'description' => "Campaign message ({$log->status})",
+                'occurred_at' => $log->created_at,
+            ];
+        });
+        $events = $events->concat($logs);
+
+        // 2. Conversation Messages (Inbox)
+        $convMessages = \App\Models\ConversationMessage::whereHas('conversation', fn($q) => $q->where('contact_id', $contact->id))
+            ->get()->map(function ($msg) {
+                $dir = $msg->direction === 'inbound' ? 'Received' : 'Sent';
+                return [
+                    'type' => 'message',
+                    'description' => "{$dir} message via {$msg->conversation->platform}",
+                    'occurred_at' => $msg->created_at,
+                ];
+            });
+        $events = $events->concat($convMessages);
+
+        // 3. Workflow Executions
+        $workflows = \App\Models\WorkflowExecution::where('contact_id', $contact->id)
+            ->with('workflow')
+            ->get()->map(function ($execution) {
+                $name = $execution->workflow->name ?? 'Unknown Workflow';
+                return [
+                    'type' => 'workflow',
+                    'description' => "Workflow '{$name}' executed ({$execution->status})",
+                    'occurred_at' => $execution->created_at,
+                ];
+            });
+        $events = $events->concat($workflows);
+
+        $sorted = $events->sortByDesc('occurred_at')->take(50)->values();
+
+        return response()->json($sorted);
+    }
+
+    public function syncTags(Request $request, Contact $contact)
+    {
+        abort_if($contact->workspace_id !== $this->workspaceId(), 403);
+
+        $request->validate([
+            'tag_ids' => 'array',
+            'tag_ids.*' => 'exists:tags,id',
+        ]);
+
+        $contact->tags()->sync($request->tag_ids);
+
+        return response()->json($contact->load('tags'));
     }
 }

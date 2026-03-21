@@ -20,7 +20,7 @@ class DatabaseSeeder extends Seeder
 
         // Create Admin User
         $admin = User::updateOrCreate([
-            'email' => 'admin@campaignflow.com',
+            'email' => 'dheerajjha834@gmail.com',
         ], [
             'name' => 'Admin User',
             'password' => \Illuminate\Support\Facades\Hash::make('password'),

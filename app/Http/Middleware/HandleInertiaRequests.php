@@ -30,46 +30,42 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
-        $user = $request->user();
-
-        // Auto-create workspace for users (e.g. seeded admins) who lack one
-        if ($user && !$user->active_workspace_id) {
-            $workspace = \App\Models\Workspace::create([
-                'owner_id' => $user->id,
-                'name'     => explode(' ', $user->name)[0] . "'s Workspace",
-                'slug'     => \Illuminate\Support\Str::slug($user->name . '-' . uniqid()),
-            ]);
-            $workspace->members()->attach($user->id, ['role' => 'owner']);
-            $user->update(['active_workspace_id' => $workspace->id]);
-            $user->refresh();
-        }
-
         return [
             ...parent::share($request),
+            
             'auth' => [
-                'user' => $user ? [
-                    'id'                  => $user->id,
-                    'name'                => $user->name,
-                    'email'               => $user->email,
-                    'active_workspace_id' => $user->active_workspace_id,
-                    'is_admin'            => $user->id === 1,
+                'user' => fn() => $request->user()?->only(
+                    'id', 'name', 'email',
+                    'active_workspace_id', 'is_admin', 'is_super_admin', 'is_active'
+                ),
+                'workspace' => fn() => $request->user()?->activeWorkspace ? [
+                    'id'   => $request->user()->activeWorkspace->id,
+                    'name' => $request->user()->activeWorkspace->name,
+                    'slug' => $request->user()->activeWorkspace->slug,
+                    'plan' => $request->user()->activeWorkspace->plan,
                 ] : null,
-                'workspace' => $user?->activeWorkspace ? [
-                    'id'   => $user->activeWorkspace->id,
-                    'name' => $user->activeWorkspace->name,
-                    'slug' => $user->activeWorkspace->slug,
-                    'plan' => $user->activeWorkspace->plan,
-                ] : null,
-                'available_workspaces' => $user ? $user->workspaces->map(fn($w) => [
-                    'id' => $w->id,
+                'available_workspaces' => fn() => $request->user() ? $request->user()->workspaces->map(fn($w) => [
+                    'id'   => $w->id,
                     'name' => $w->name,
                     'slug' => $w->slug,
                 ]) : [],
             ],
+            
+            'workspace' => fn() => $request->user()?->activeWorkspace?->only(
+                'id', 'name', 'subscription_status',
+                'messages_sent_this_month', 'monthly_message_limit',
+                'trial_ends_at', 'slug', 'plan'
+            ),
+            
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error'   => fn () => $request->session()->get('error'),
             ],
+            
+            'notifications_count' => fn() => $request->user()
+                ? $request->user()->unreadNotifications()->count()
+                : 0,
+                
             'ziggy' => fn () => [
                 ...(new Ziggy)->toArray(),
                 'location' => $request->url(),

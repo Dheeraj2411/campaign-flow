@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->boolean('can_edit_profile')->default(true)->after('is_active');
+            $table->boolean('can_edit_profile')->default(true);
         });
     }
 

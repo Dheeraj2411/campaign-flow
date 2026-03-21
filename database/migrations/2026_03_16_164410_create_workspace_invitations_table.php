@@ -17,8 +17,8 @@ return new class extends Migration
             $table->string('email');
             $table->string('role')->default('member');
             $table->string('token')->unique();
-            $table->timestamp('accepted_at')->nullable();
-            $table->timestamp('expires_at')->nullable();
+            $table->timestampTz('accepted_at')->nullable();
+            $table->timestampTz('expires_at')->nullable();
             $table->timestamps();
         });
     }

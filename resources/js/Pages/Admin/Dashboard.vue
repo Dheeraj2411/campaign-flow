@@ -1,5 +1,5 @@
 <template>
-    <AdminLayout title="Admin Overview" subtitle="High-level metrics for your CampaignFlow SaaS">
+    <AdminLayout title="Admin Overview" subtitle="High-level metrics for your PingOS SaaS">
         
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <!-- Total Users -->
@@ -73,8 +73,8 @@
                         View all
                     </Link>
                 </div>
-                <div class="p-0 overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
+                <div class="p-0 overflow-x-auto rounded-lg border border-gray-200">
+                    <table class="min-w-full divide-y divide-gray-200 text-left">
                         <thead>
                             <tr class="bg-slate-50/50">
                                 <th class="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">User</th>
@@ -159,16 +159,100 @@
             </div>
         </div>
 
+        <!-- Failed Jobs Panel -->
+        <div class="mt-8 bg-white border border-slate-100 rounded-2xl shadow-sm flex flex-col overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-rose-500/70 text-[18px]">error</span>
+                    Recent Failed Jobs
+                    <span class="bg-rose-100 text-rose-600 text-[10px] px-2 py-0.5 rounded-full font-bold ml-1">{{ failedCount }}</span>
+                </h2>
+                <a href="/horizon/failed" target="_blank" class="text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors flex items-center gap-1">
+                    Open Horizon <span class="material-symbols-outlined text-[14px]">open_in_new</span>
+                </a>
+            </div>
+            <div class="p-0 overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-left">
+                    <thead class="bg-slate-50/50">
+                        <tr>
+                            <th class="px-6 py-3 text-xs font-semibold text-slate-500 tracking-wider">Job</th>
+                            <th class="px-6 py-3 text-xs font-semibold text-slate-500 tracking-wider">Exception</th>
+                            <th class="px-6 py-3 text-xs font-semibold text-slate-500 tracking-wider">Failed At</th>
+                            <th class="px-6 py-3 text-xs font-semibold text-slate-500 tracking-wider text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        <tr v-for="job in failedJobs.slice(0, 5)" :key="job.id" class="hover:bg-slate-50/50 transition-colors">
+                            <td class="px-6 py-4 text-sm font-medium text-slate-800">
+                                <div class="break-words max-w-[200px]" :title="job.name">{{ job.name.split('\\').pop() }}</div>
+                                <span class="text-xs text-slate-400 font-normal">Queue: {{ job.queue }}</span>
+                            </td>
+                            <td class="px-6 py-4 text-xs text-rose-500 break-words max-w-sm">
+                                {{ job.exception.split('\n')[0] }}
+                            </td>
+                            <td class="px-6 py-4 text-xs text-slate-500">
+                                {{ new Date(job.failed_at).toLocaleString() }}
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <button @click="retryJob(job.id)" :disabled="isRetrying[job.id]" class="text-xs font-semibold text-admin-primary hover:text-admin-highlight transition-colors flex items-center justify-end gap-1 ml-auto disabled:opacity-50">
+                                    <span class="material-symbols-outlined text-[16px]">{{ isRetrying[job.id] ? 'hourglass_empty' : 'refresh' }}</span>
+                                    Retry
+                                </button>
+                            </td>
+                        </tr>
+                        <tr v-if="failedJobs.length === 0">
+                            <td colspan="4" class="px-6 py-8 text-center text-slate-500 text-sm">
+                                No failed jobs in the last 24h 🎉
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </AdminLayout>
 </template>
 
 <script setup>
 import AdminLayout from '@/Layouts/AdminLayout.vue'
 import { Link } from '@inertiajs/vue3'
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
 
 const props = defineProps({
     stats:       Object,
     recentUsers: Array,
+})
+
+const failedJobs = ref([])
+const failedCount = ref(0)
+const isRetrying = ref({})
+
+const fetchFailedJobs = async () => {
+    try {
+        const response = await axios.get('/horizon/api/jobs/failed?starting_at=0')
+        failedJobs.value = response.data.jobs || []
+        failedCount.value = response.data.total || 0
+    } catch (e) {
+        console.error('Failed to fetch failed jobs from Horizon API', e)
+    }
+}
+
+const retryJob = async (id) => {
+    if (isRetrying.value[id]) return;
+    isRetrying.value[id] = true
+    try {
+        await axios.post(`/horizon/api/jobs/retry/${id}`)
+        setTimeout(fetchFailedJobs, 1500)
+    } catch (e) {
+        console.error(e)
+    } finally {
+        setTimeout(() => { isRetrying.value[id] = false }, 1500)
+    }
+}
+
+onMounted(() => {
+    fetchFailedJobs()
 })
 
 const formatCurrency = (amount) => {

@@ -20,7 +20,7 @@ class MetaApiService
     {
         $this->workspace = $workspace;
 
-        $encryptedToken = $workspace->settings['whatsapp_access_token'] ?? '';
+        $encryptedToken = $workspace->getCachedSettings()['whatsapp_access_token'] ?? '';
         try {
             $this->accessToken = $encryptedToken ? Crypt::decryptString($encryptedToken) : '';
         } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
@@ -34,7 +34,7 @@ class MetaApiService
             );
         }
 
-        $this->businessAccountId = $workspace->settings['whatsapp_business_account_id'] ?? '';
+        $this->businessAccountId = $workspace->getCachedSettings()['whatsapp_business_account_id'] ?? '';
     }
 
     /**
@@ -86,7 +86,7 @@ class MetaApiService
             } else {
                 // For MEDIA headers in templates, Meta often requires an example/placeholder
                 $header['example'] = [
-                    'header_handle' => ['https://example.com/placeholder.png'] 
+                    'header_handle' => ['https://pingos.com/placeholder.png'] 
                 ];
             }
             $components[] = $header;

@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('direction'); // inbound, outbound
             $table->text('body');
             $table->string('status')->default('sent'); // sent, delivered, read, failed (for outbound)
-            $table->timestamp('sent_at');
+            $table->timestampTz('sent_at');
             $table->timestamps();
         });
     }

@@ -15,24 +15,19 @@ use Illuminate\Support\Facades\Log;
  * Handles Meta/WhatsApp webhook events:
  * 1. Verification handshake (GET)
  * 2. Delivery status updates (sent, delivered, read, failed)
- * 3. Incoming customer messages (text, image, video, document)
+ * 3. Incoming customer messages (text, image, video, document, interactive replies)
  */
 class WhatsAppWebhookController extends Controller
 {
     // ─── WEBHOOK VERIFICATION ──────────────────────────────
 
-    /**
-     * Meta calls this GET endpoint to verify your webhook URL.
-     * It sends hub_mode, hub_verify_token, and hub_challenge.
-     * We verify the token matches our env and return the challenge.
-     */
     public function verify(Request $request)
     {
         $mode      = $request->query('hub_mode');
         $token     = $request->query('hub_verify_token');
         $challenge = $request->query('hub_challenge');
 
-        if ($mode === 'subscribe' && $token === config('services.whatsapp.verify_token', 'campaignflow_secret')) {
+        if ($mode === 'subscribe' && $token === config('services.whatsapp.verify_token', 'pingos_secret')) {
             return response($challenge, 200);
         }
 
@@ -41,33 +36,24 @@ class WhatsAppWebhookController extends Controller
 
     // ─── WEBHOOK HANDLER ───────────────────────────────────
 
-    /**
-     * Meta calls this POST endpoint for every WhatsApp event:
-     * - Message status changes (sent → delivered → read)
-     * - Incoming messages from customers
-     */
     public function handle(Request $request)
     {
-        // Step 1: Verify webhook signature (security)
         if (!$this->verifySignature($request)) {
             return response('Forbidden', 403);
         }
 
         $payload = $request->all();
 
-        // Step 2: Find which workspace owns this phone number
         $workspace = $this->resolveWorkspace($payload);
         if (!$workspace) {
-            return response()->json(['success' => true]); // Acknowledge to avoid Meta retries
+            return response()->json(['success' => true]); 
         }
 
-        // Step 3: Process delivery status updates
         $statuses = data_get($payload, 'entry.0.changes.0.value.statuses', []);
         foreach ($statuses as $status) {
             $this->handleStatusUpdate($status, $workspace);
         }
 
-        // Step 4: Process incoming messages
         $messages = data_get($payload, 'entry.0.changes.0.value.messages', []);
         foreach ($messages as $message) {
             $this->handleIncomingMessage($message, $workspace);
@@ -78,10 +64,6 @@ class WhatsAppWebhookController extends Controller
 
     // ─── PRIVATE HELPERS ───────────────────────────────────
 
-    /**
-     * Verify the X-Hub-Signature-256 header from Meta.
-     * Returns true if signature is valid or not present (for local testing).
-     */
     private function verifySignature(Request $request): bool
     {
         $signature = $request->header('X-Hub-Signature-256');
@@ -106,10 +88,6 @@ class WhatsAppWebhookController extends Controller
         return true;
     }
 
-    /**
-     * Find the workspace that owns the receiving phone number.
-     * Multi-tenant isolation: each workspace has its own WhatsApp credentials.
-     */
     private function resolveWorkspace(array $payload): ?Workspace
     {
         $metadata           = data_get($payload, 'entry.0.changes.0.value.metadata');
@@ -121,8 +99,8 @@ class WhatsAppWebhookController extends Controller
             return null;
         }
 
-        $workspace = Workspace::whereJsonContains('settings->whatsapp_display_phone_number', $displayPhoneNumber)
-            ->orWhereJsonContains('settings->whatsapp_phone_number_id', $phoneNumberId ?? '')
+        $workspace = Workspace::whereRaw("settings->>'whatsapp_display_phone_number' = ?", [$displayPhoneNumber])
+            ->orWhereRaw("settings->>'whatsapp_phone_number_id' = ?", [$phoneNumberId ?? ''])
             ->first();
 
         if (!$workspace) {
@@ -132,10 +110,6 @@ class WhatsAppWebhookController extends Controller
         return $workspace;
     }
 
-    /**
-     * Handle a message delivery status update (sent, delivered, read, failed).
-     * Updates both MessageLog (campaigns) and ConversationMessage (inbox).
-     */
     private function handleStatusUpdate(array $status, Workspace $workspace): void
     {
         $wamid       = $status['id'] ?? null;
@@ -144,13 +118,11 @@ class WhatsAppWebhookController extends Controller
 
         if (!$wamid || !$statusName) return;
 
-        // Update campaign message log (if this was a campaign message)
         $log = MessageLog::where('platform', 'whatsapp')
             ->where('platform_message_id', $wamid)
             ->first();
 
         if (!$log && $recipientId) {
-            // Fallback: find the latest pending message for this recipient (exact match)
             $normalizedRecipient = '+' . ltrim(preg_replace('/[^0-9]/', '', $recipientId), '+');
             $log = MessageLog::where('platform', 'whatsapp')
                 ->whereHas('contact', fn($q) => $q->where('phone', $normalizedRecipient))
@@ -161,14 +133,19 @@ class WhatsAppWebhookController extends Controller
 
         if ($log) {
             $log->update(['status' => $statusName]);
+            
+            \App\Models\MessageStatusHistory::create([
+                'message_log_id' => $log->id,
+                'status'         => $statusName,
+                'raw_status'     => json_encode($status),
+                'occurred_at'    => now(),
+            ]);
         }
 
-        // Update inbox conversation message
         $convMsg = ConversationMessage::where('platform_message_id', $wamid)->first();
         if ($convMsg) {
             $convMsg->update(['status' => $statusName]);
 
-            // Broadcast status change for real-time UI updates
             try {
                 broadcast(new \App\Events\MessageStatusUpdated($convMsg));
             } catch (\Exception $e) {
@@ -177,11 +154,6 @@ class WhatsAppWebhookController extends Controller
         }
     }
 
-    /**
-     * Handle an incoming customer message.
-     * Creates or finds the contact, creates or finds the conversation,
-     * saves the message, and broadcasts it.
-     */
     private function handleIncomingMessage(array $message, Workspace $workspace): void
     {
         $fromPhone = $message['from'] ?? null;
@@ -190,69 +162,118 @@ class WhatsAppWebhookController extends Controller
 
         if (!$fromPhone) return;
 
-        // Find or create the contact (exact match on normalized phone)
         $normalizedPhone = '+' . ltrim(preg_replace('/[^0-9]/', '', $fromPhone), '+');
         $contact = Contact::where('workspace_id', $workspace->id)
             ->where('phone', $normalizedPhone)
             ->first();
 
         if (!$contact) {
-            $contact = Contact::create([
+            $contact = Contact::withoutGlobalScope(\App\Scopes\TenantScope::class)->firstOrCreate([
                 'workspace_id' => $workspace->id,
                 'name'         => $message['profile']['name'] ?? 'Unknown WhatsApp User',
                 'phone'        => $normalizedPhone,
             ]);
         }
 
-        // Find or create the conversation
-        $conversation = Conversation::updateOrCreate(
+        $conversation = Conversation::withoutGlobalScope(\App\Scopes\TenantScope::class)->firstOrCreate(
             ['workspace_id' => $workspace->id, 'contact_id' => $contact->id, 'platform' => 'whatsapp'],
             ['last_message_at' => now(), 'status' => 'open']
         );
 
-        // Build the message data
         $msgData = [
             'direction'           => 'inbound',
-            'type'                => $msgType,
             'status'              => 'delivered',
             'sent_at'             => now(),
             'platform_message_id' => $wamid,
+            'metadata'            => [],
         ];
 
         if ($msgType === 'text') {
             $msgData['body'] = $message['text']['body'] ?? '';
+            $msgData['type'] = 'text';
+        } elseif ($msgType === 'interactive') {
+            $interactiveType = $message['interactive']['type'] ?? '';
+            if ($interactiveType === 'button_reply') {
+                $msgData['body'] = $message['interactive']['button_reply']['title'] ?? 'Button Reply';
+                $msgData['type'] = 'button_reply';
+                $msgData['metadata'] = ['button_id' => $message['interactive']['button_reply']['id'] ?? null];
+            } elseif ($interactiveType === 'list_reply') {
+                $msgData['body'] = $message['interactive']['list_reply']['title'] ?? 'List Reply';
+                $msgData['type'] = 'list_reply';
+                $msgData['metadata'] = ['list_id' => $message['interactive']['list_reply']['id'] ?? null];
+            } else {
+                $msgData['body'] = '[Interactive Reply]';
+                $msgData['type'] = 'interactive';
+            }
         } else {
-            // Media message (image, video, document, audio, sticker)
             $mediaObj          = $message[$msgType] ?? [];
             $mediaId            = $mediaObj['id'] ?? null;
             $msgData['media_url'] = $mediaId ? $this->resolveMediaUrl($mediaId, $workspace) : null;
             $msgData['caption']   = $mediaObj['caption'] ?? null;
             $msgData['body']      = "[Received {$msgType}]";
+            $msgData['type'] = $msgType;
         }
 
-        // Save the message
         $convMessage = $conversation->messages()->create($msgData);
 
-        // Update conversation metadata
         $conversation->update([
             'last_message_at' => now(),
             'last_incoming_at' => now(),
             'last_message_preview' => mb_substr($msgData['body'] ?? "[Received {$msgType}]", 0, 100),
         ]);
 
-        // Atomic increment — avoids DB::raw cast issue
         $conversation->increment('unread_count');
 
-        // Broadcast for real-time inbox updates
         try {
             broadcast(new \App\Events\MessageReceived($convMessage->load('conversation.contact')));
         } catch (\Exception $e) {
             Log::warning("Broadcast failed (incoming message): " . $e->getMessage());
         }
 
-        // Trigger automation workflows for incoming messages
         try {
-            (new \App\Services\AutomationWorkflowService())->executeTrigger('incoming_message', [
+            $chatbot = app(\App\Services\ChatbotService::class);
+            if ($chatbot->shouldRespond($conversation, $msgData['body'] ?? '')) {
+                $config = \App\Models\ChatbotConfig::getCachedForWorkspace($workspace->id);
+                if (str_contains(strtolower($msgData['body'] ?? ''), strtolower($config->escalate_keyword ?? 'human'))) {
+                    $chatbot->handleEscalation($conversation);
+                    $handoffMsg = "Connecting you to a human agent...";
+                    \App\Jobs\SendConversationMessageJob::dispatch($conversation, $handoffMsg, $workspace);
+                } else {
+                    $reply = $chatbot->generateReply($workspace, $conversation, $msgData['body'] ?? '');
+                    \App\Jobs\SendConversationMessageJob::dispatch($conversation, $reply, $workspace);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Chatbot execution failed: " . $e->getMessage());
+        }
+
+        try {
+            $aws = new \App\Services\AutomationWorkflowService();
+
+            if ($msgType === 'interactive') {
+                $interactiveType = $message['interactive']['type'] ?? '';
+                $replyId = null;
+                if ($interactiveType === 'button_reply') {
+                    $replyId = $message['interactive']['button_reply']['id'] ?? null;
+                } elseif ($interactiveType === 'list_reply') {
+                    $replyId = $message['interactive']['list_reply']['id'] ?? null;
+                }
+
+                if ($replyId) {
+                    $aws->trigger('interactive_reply', [
+                        'workspace_id' => $workspace->id,
+                        'contact_id' => $contact->id,
+                        'conversation_id' => $conversation->id,
+                        'message_id' => $convMessage->id,
+                        'button_id' => $interactiveType === 'button_reply' ? $replyId : null,
+                        'list_id' => $interactiveType === 'list_reply' ? $replyId : null,
+                        'interactive_id' => $replyId,
+                        'platform' => 'whatsapp',
+                    ]);
+                }
+            }
+
+            $aws->trigger('incoming_message', [
                 'workspace_id' => $workspace->id,
                 'contact_id' => $contact->id,
                 'conversation_id' => $conversation->id,
@@ -260,24 +281,36 @@ class WhatsAppWebhookController extends Controller
                 'message' => $convMessage->body,
                 'platform' => 'whatsapp',
             ]);
+
+            $recentCampaignLog = \App\Models\MessageLog::where('contact_id', $contact->id)
+                ->where('created_at', '>=', now()->subHours(24))
+                ->whereNotNull('campaign_id')
+                ->latest()
+                ->first();
+
+            if ($recentCampaignLog) {
+                $aws->trigger('campaign_replied', [
+                    'workspace_id' => $workspace->id,
+                    'contact_id' => $contact->id,
+                    'conversation_id' => $conversation->id,
+                    'campaign_id' => $recentCampaignLog->campaign_id,
+                ]);
+            }
         } catch (\Throwable $e) {
             Log::warning("Automation workflow failed: " . $e->getMessage());
         }
     }
 
-    /**
-     * Resolve a WhatsApp media ID to a downloadable URL via Graph API.
-     */
     private function resolveMediaUrl(string $mediaId, Workspace $workspace): ?string
     {
         try {
-            $encToken = $workspace->settings['whatsapp_access_token'] ?? null;
+            $encToken = $workspace->getCachedSettings()['whatsapp_access_token'] ?? null;
             if (!$encToken) return null;
 
             try {
                 $token = \Illuminate\Support\Facades\Crypt::decryptString($encToken);
             } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
-                $token = $encToken; // legacy unencrypted
+                $token = $encToken;
             }
 
             $response = \Illuminate\Support\Facades\Http::withToken($token)

@@ -1,34 +1,42 @@
 <template>
-    <AppLayout title="Campaigns" subtitle="Create and manage your messaging campaigns">
+    <HeadTitle title="Campaigns" subtitle="Create and manage your messaging campaigns">
         <!-- Stats strip -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div class="flex items-center gap-3 mb-2">
-                    <span class="material-symbols-outlined text-[20px] text-slate-400 bg-slate-50 p-2 rounded-lg">all_inclusive</span>
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total</span>
+            <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="p-2.5 bg-gray-50 rounded-xl">
+                        <span class="material-symbols-outlined text-[20px] text-gray-500">all_inclusive</span>
+                    </div>
                 </div>
-                <p class="text-2xl font-black text-slate-800">{{ campaigns.total ?? 0 }}</p>
+                <p class="text-3xl font-bold text-gray-900">{{ campaigns.total ?? 0 }}</p>
+                <p class="text-sm text-gray-500 mt-1">Total</p>
             </div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div class="flex items-center gap-3 mb-2">
-                    <span class="material-symbols-outlined text-[20px] text-emerald-500 bg-emerald-50 p-2 rounded-lg">check_circle</span>
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Completed</span>
+            <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="p-2.5 bg-emerald-50 rounded-xl">
+                        <span class="material-symbols-outlined text-[20px] text-emerald-600">check_circle</span>
+                    </div>
                 </div>
-                <p class="text-2xl font-black text-emerald-700">{{ statusCount('completed') }}</p>
+                <p class="text-3xl font-bold text-gray-900">{{ statusCount('completed') }}</p>
+                <p class="text-sm text-gray-500 mt-1">Completed</p>
             </div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div class="flex items-center gap-3 mb-2">
-                    <span class="material-symbols-outlined text-[20px] text-amber-500 bg-amber-50 p-2 rounded-lg">pending</span>
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Scheduled</span>
+            <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="p-2.5 bg-amber-50 rounded-xl">
+                        <span class="material-symbols-outlined text-[20px] text-amber-600">pending</span>
+                    </div>
                 </div>
-                <p class="text-2xl font-black text-amber-700">{{ statusCount('scheduled') }}</p>
+                <p class="text-3xl font-bold text-gray-900">{{ statusCount('scheduled') }}</p>
+                <p class="text-sm text-gray-500 mt-1">Scheduled</p>
             </div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <div class="flex items-center gap-3 mb-2">
-                    <span class="material-symbols-outlined text-[20px] text-red-500 bg-red-50 p-2 rounded-lg">error</span>
-                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Failed</span>
+            <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="p-2.5 bg-red-50 rounded-xl">
+                        <span class="material-symbols-outlined text-[20px] text-red-600">error</span>
+                    </div>
                 </div>
-                <p class="text-2xl font-black text-red-700">{{ statusCount('failed') }}</p>
+                <p class="text-3xl font-bold text-gray-900">{{ statusCount('failed') }}</p>
+                <p class="text-sm text-gray-500 mt-1">Failed</p>
             </div>
         </div>
 
@@ -39,40 +47,40 @@
             :search-keys="['name']"
         >
             <template #actions>
-                <BaseButton variant="admin" size="sm" icon="add" :href="route('campaigns.create')">New Campaign</BaseButton>
+                <BaseButton variant="primary" size="sm" icon="add" :href="route('campaigns.create')">New Campaign</BaseButton>
             </template>
 
             <template #cell-name="{ row }">
                 <div class="flex items-center gap-3 min-w-0">
-                    <div :class="['w-10 h-10 rounded-xl grid place-items-center shadow-sm border border-slate-50 shrink-0 overflow-hidden aspect-square', 
-                                 row.platform === 'whatsapp' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600']">
+                    <div :class="['w-10 h-10 rounded-xl grid place-items-center shrink-0', 
+                                 row.platform === 'whatsapp' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600']">
                         <span class="material-symbols-outlined text-[20px]">{{ row.platform === 'whatsapp' ? 'whatsapp' : 'send' }}</span>
                     </div>
                     <div>
-                        <p class="text-sm font-bold text-slate-800">{{ row.name }}</p>
-                        <p class="text-[10px] text-slate-400 uppercase tracking-tight">Launched on {{ new Date(row.created_at).toLocaleDateString() }}</p>
+                        <p class="text-sm font-semibold text-gray-900">{{ row.name }}</p>
+                        <p class="text-xs text-gray-500">Launched {{ new Date(row.created_at).toLocaleDateString() }}</p>
                     </div>
                 </div>
             </template>
 
             <template #cell-status="{ row }">
-                <BaseBadge :variant="statusVariant(row.status)" :dot="true" class="font-bold uppercase text-[10px] tracking-widest px-3 py-1">
+                <BaseBadge :variant="statusVariant(row.status)" :dot="true">
                     {{ row.status }}
                 </BaseBadge>
             </template>
 
             <template #cell-scheduled_at="{ row }">
-                <span class="text-xs font-medium text-slate-500">{{ row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : 'Immediate' }}</span>
+                <span class="text-sm text-gray-500">{{ row.scheduled_at ? new Date(row.scheduled_at).toLocaleString() : 'Immediate' }}</span>
             </template>
 
             <template #rowActions="{ row }">
                 <div class="flex items-center justify-end gap-2">
                     <Link :href="route('campaigns.show', row.id)"
-                          class="p-2 rounded-xl bg-slate-50 hover:bg-admin-primary/10 text-slate-400 hover:text-admin-primary transition-all shadow-sm">
+                          class="p-2 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-indigo-600 transition-colors">
                         <span class="material-symbols-outlined text-[18px]">visibility</span>
                     </Link>
                     <button v-if="row.status === 'draft' || row.status === 'failed'"
-                            class="p-2 rounded-xl bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shadow-sm"
+                            class="p-2 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-500 transition-colors"
                             @click="confirmDelete(row)">
                         <span class="material-symbols-outlined text-[18px]">delete</span>
                     </button>
@@ -82,21 +90,21 @@
 
         <!-- Delete confirm -->
         <BaseModal v-model="showDelete" title="Delete Campaign" max-width="sm">
-            <p class="text-sm text-slate-600">
-                Delete <strong>{{ deleteTarget?.name }}</strong>? This cannot be undone.
+            <p class="text-sm text-gray-600">
+                Delete <strong class="text-gray-900">{{ deleteTarget?.name }}</strong>? This cannot be undone.
             </p>
             <template #footer>
                 <BaseButton variant="ghost" @click="showDelete = false">Cancel</BaseButton>
                 <BaseButton variant="danger" :loading="deleting" @click="doDelete">Delete</BaseButton>
             </template>
         </BaseModal>
-    </AppLayout>
+    </HeadTitle>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { Link, router } from '@inertiajs/vue3'
-import AppLayout from '@/Layouts/AppLayout.vue'
+import HeadTitle from '@/Components/HeadTitle.vue'
 import DataTable   from '@/Components/DataTable.vue'
 import BaseButton  from '@/Components/BaseButton.vue'
 import BaseBadge   from '@/Components/BaseBadge.vue'

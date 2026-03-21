@@ -20,7 +20,7 @@ class WhatsAppService
     public function __construct(Workspace $workspace)
     {
         $this->workspace = $workspace;
-        $settings = $workspace->settings ?? [];
+        $settings = $workspace->getCachedSettings() ?? [];
         $this->phoneNumberId = $settings['whatsapp_phone_number_id'] ?? '';
 
         $encryptedToken = $settings['whatsapp_access_token'] ?? '';
@@ -112,22 +112,7 @@ class WhatsAppService
                 'text'              => ['body' => $message],
             ]);
 
-        if ($response->status() === 401 || $response->status() === 403) {
-            $this->notifyUsers('expired');
-            Cache::put("whatsapp_token_valid:{$this->workspace->id}", false, 600);
-            throw new \Exception("WhatsApp Token Expired. Notification sent to workspace users.");
-        }
-
-        if ($response->failed()) {
-            throw new \Exception("WhatsApp API Error: " . $response->body());
-        }
-
-        $data = $response->json();
-        return [
-            'success'             => true,
-            'platform_message_id' => $data['messages'][0]['id'] ?? null,
-            'raw'                 => $data,
-        ];
+        return $this->handleResponse($response);
     }
 
     /**
@@ -154,22 +139,7 @@ class WhatsAppService
         /** @var Response $response */
         $response = Http::withToken($this->accessToken)->post($apiUrl, $payload);
 
-        if ($response->status() === 401 || $response->status() === 403) {
-            $this->notifyUsers('expired');
-            Cache::put("whatsapp_token_valid:{$this->workspace->id}", false, 600);
-            throw new \Exception("WhatsApp Token Expired. Notification sent to workspace users.");
-        }
-
-        if ($response->failed()) {
-            throw new \Exception("WhatsApp API Error: " . $response->body());
-        }
-
-        $data = $response->json();
-        return [
-            'success'             => true,
-            'platform_message_id' => $data['messages'][0]['id'] ?? null,
-            'raw'                 => $data,
-        ];
+        return $this->handleResponse($response);
     }
 
     /**
@@ -207,6 +177,80 @@ class WhatsAppService
         /** @var Response $response */
         $response = Http::withToken($this->accessToken)->post($url, $payload);
 
+        return $this->handleResponse($response);
+    }
+
+    public function sendInteractiveButtons(string $to, string $bodyText, array $buttons): array
+    {
+        $this->validateCredentials();
+        $to = $this->normalizePhone($to);
+        $url = "https://graph.facebook.com/v22.0/{$this->phoneNumberId}/messages";
+
+        $formattedButtons = array_map(function($btn) {
+            return [
+                'type' => 'reply',
+                'reply' => [
+                    'id' => (string) ($btn['id'] ?? uniqid()),
+                    'title' => substr($btn['title'] ?? 'Button', 0, 20)
+                ]
+            ];
+        }, array_slice($buttons, 0, 3));
+
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to'                => $to,
+            'type'              => 'interactive',
+            'interactive'       => [
+                'type' => 'button',
+                'body' => ['text' => substr($bodyText, 0, 1024)],
+                'action' => ['buttons' => $formattedButtons]
+            ]
+        ];
+
+        /** @var Response $response */
+        $response = Http::withToken($this->accessToken)->post($url, $payload);
+        return $this->handleResponse($response);
+    }
+
+    public function sendInteractiveList(string $to, string $headerText, string $bodyText, string $buttonLabel, array $sections): array
+    {
+        $this->validateCredentials();
+        $to = $this->normalizePhone($to);
+        $url = "https://graph.facebook.com/v22.0/{$this->phoneNumberId}/messages";
+
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to'                => $to,
+            'type'              => 'interactive',
+            'interactive'       => [
+                'type' => 'list',
+                'header' => ['type' => 'text', 'text' => substr($headerText, 0, 60)],
+                'body' => ['text' => substr($bodyText, 0, 1024)],
+                'action' => [
+                    'button' => substr($buttonLabel, 0, 20),
+                    'sections' => $sections
+                ]
+            ]
+        ];
+
+        /** @var Response $response */
+        $response = Http::withToken($this->accessToken)->post($url, $payload);
+        return $this->handleResponse($response);
+    }
+
+    public function sendQuickReplies(string $to, string $bodyText, array $replies): array
+    {
+        // shorthand for a single section list if there are > 3 replies
+        return $this->sendInteractiveList($to, 'Options', $bodyText, 'Select Option', [
+            [
+                'title' => 'Available Options',
+                'rows' => $replies
+            ]
+        ]);
+    }
+
+    private function handleResponse(Response $response): array
+    {
         if ($response->status() === 401 || $response->status() === 403) {
             $this->notifyUsers('expired');
             Cache::put("whatsapp_token_valid:{$this->workspace->id}", false, 600);
